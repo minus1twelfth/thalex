@@ -14,21 +14,22 @@ import thalex as th
 from common import *
 from deribit import Deribit
 
-MAX_DTE = 1
+MAX_DTE = 7
 MIN_DELTA = 0.2
 MAX_DELTA = 0.8
 LOTS = 0.1
 BATCH = 100  # Mass Quote batch size
 DISCO_SECS = 10  # cancel on disconnect seconds
-MMP_TRADE = LOTS
-MMP_QUOTE = LOTS
+MMP_SIZE = 3 * LOTS
 W_ASK = 100  # $
-W_BID = 50  # $
+W_BID = 100  # $
+MIN_POS = -0.1
+MAX_POS = 0.1
 
 AMEND_THRESHOLD = 15  # $USD
 
 DERIBIT_URL = "wss://www.deribit.com/ws/api/v2"
-NETWORK = th.Network.LOCAL
+NETWORK = th.Network.DEV
 UNDERLYING = "BTC"
 PRODUCT = "OBTCUSD"
 assert UNDERLYING in PRODUCT
@@ -105,23 +106,35 @@ class QuoteMeta:
             return True
         return False
 
-    def update_theo(self, index: float, now: float):
+    def update_theo(self, index: float, now: float, pp: float):
         logging.debug(f"{index=} {self.instrument.name} {self.delta=} {self.fwd=} {self.vols=}")
-        if self.delta is None or self. fwd is None or not MIN_DELTA < abs(self.delta) < MAX_DELTA:
+        if self.delta is None or self.fwd is None or not MIN_DELTA < abs(self.delta) < MAX_DELTA:
             self.theo.b = th.SideQuote(0, 0)
             self.theo.a = th.SideQuote(0, 0)
             return
         tte = (self.instrument.exp - now) / (3600 * 24 * 365.25)
         if self.instrument.type == InstrumentType.CALL:
-            p = round_to_tick(call_discount(self.fwd, self.instrument.k, self.vols[0], tte)) - W_BID
-            self.theo.b = th.SideQuote(p, LOTS if p > 10 else 0)
-            p = round_to_tick(call_discount(self.fwd, self.instrument.k, self.vols[1], tte)) + W_ASK
-            self.theo.a = th.SideQuote(p, LOTS if p > 10 else 0)
+            if pp < MAX_POS:
+                p = round_to_tick(call_discount(self.fwd, self.instrument.k, self.vols[0], tte)) - W_BID
+                self.theo.b = th.SideQuote(p, LOTS if p > 10 else 0)
+            else:
+                self.theo.b = th.SideQuote(0, 0)
+            if pp > MIN_POS:
+                p = round_to_tick(call_discount(self.fwd, self.instrument.k, self.vols[1], tte)) + W_ASK
+                self.theo.a = th.SideQuote(p, LOTS if p > 10 else 0)
+            else:
+                self.theo.a = th.SideQuote(0, 0)
         elif self.instrument.type == InstrumentType.PUT:
-            p = round_to_tick(put_discount(self.fwd, self.instrument.k, self.vols[0], tte)) - W_BID
-            self.theo.b = th.SideQuote(p, LOTS if p > 10 else 0)
-            p = round_to_tick(put_discount(self.fwd, self.instrument.k, self.vols[1], tte)) + W_ASK
-            self.theo.a = th.SideQuote(p, LOTS if p > 10 else 0)
+            if pp < MAX_POS:
+                p = round_to_tick(put_discount(self.fwd, self.instrument.k, self.vols[0], tte)) - W_BID
+                self.theo.b = th.SideQuote(p, LOTS if p > 10 else 0)
+            else:
+                self.theo.b = th.SideQuote(0, 0)
+            if pp > MIN_POS:
+                p = round_to_tick(put_discount(self.fwd, self.instrument.k, self.vols[1], tte)) + W_ASK
+                self.theo.a = th.SideQuote(p, LOTS if p > 10 else 0)
+            else:
+                self.theo.a = th.SideQuote(0, 0)
         logging.debug(f"{index=} {self.fwd=} {self.vols=} {self.instrument.name} theo: {self.theo}")
 
 
@@ -134,6 +147,7 @@ class Quoter:
         self._send_queue: list[QuoteMeta] = []
         self._index: Optional[float] = None
         self._armed: bool = False
+        self.portfolio: dict[str, float] = {}
 
     async def read_task(self):
         await self.thalex.connect()
@@ -143,10 +157,10 @@ class Quoter:
             id=CID_LOGIN,
         )
         await self.thalex.set_cancel_on_disconnect(DISCO_SECS, CID_CANCEL_DISCO)
-        await self.thalex.set_mm_protection(PRODUCT, MMP_TRADE, MMP_QUOTE, id=CID_MMP)
+        await self.thalex.set_mm_protection(PRODUCT, MMP_SIZE, MMP_SIZE, id=CID_MMP)
         await self.thalex.instruments(CID_INSTRUMENTS)
         await self.thalex.public_subscribe([f"price_index.{UNDERLYING}USD"], CID_SUBSCRIBE)
-        await self.thalex.private_subscribe(["session.orders"], id=CID_SUBSCRIBE)
+        await self.thalex.private_subscribe(["session.orders", "account.portfolio"], id=CID_SUBSCRIBE)
         self._armed = True
         while True:
             msg = json.loads(await self.thalex.receive())
@@ -174,10 +188,12 @@ class Quoter:
         if ch.startswith("price_index"):
             self._index = n["price"]
         elif ch == "session.orders":
+            mmp_hit = False
             for o in n:
-                if o.get("delete_reason", "") == "mm_protection":
+                if o.get("delete_reason", "") == "mm_protection" and not mmp_hit:
                     logging.warning("MMP is hit. Disarming.")
                     self._armed = False
+                    mmp_hit = True
                 q = self._quotes[o["instrument_name"]]
                 side = 0 if o["direction"] == "buy" else 1
                 if o["status"] in ["open", "partially_filled"]:
@@ -190,6 +206,9 @@ class Quoter:
             q = self._quotes[iname]
             q.delta = n["delta"]
             q.fwd = n["forward"]
+        elif ch == "account.portfolio":
+            for pp in n:
+                self.portfolio[pp["instrument_name"]] = pp["position"]
 
     async def send_task(self):
         while True:
@@ -258,7 +277,8 @@ class Quoter:
                         q.vols[1] = ask
                         if self._index is None:
                             continue
-                        q.update_theo(self._index, now)
+                        pp = self.portfolio.get(q.instrument.name, 0)
+                        q.update_theo(self._index, now, pp)
                         if q.should_send():
                             q.queued = True
                             self._send_queue.append(q)
