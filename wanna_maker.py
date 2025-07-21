@@ -170,7 +170,7 @@ class Quoter:
                 subs = self.proc_instruments(msg["result"])
                 await self.thalex.public_subscribe(subs, CID_SUBSCRIBE)
             elif cid == CID_SUBSCRIBE:
-                logging.info(f"sub result: {msg}")
+                logging.debug(f"sub result: {msg}")
             elif cid == CID_QUOTE:
                 if "error" in msg:
                     logging.warning(f"Quote error: {msg}")
@@ -267,13 +267,18 @@ class Quoter:
                         ndown = iv_chain[k_down]
                         if pc not in ndown or pc not in nup:
                             continue
-                        bid_iv_down = ndown[pc].bid_iv
-                        bid_iv_up = nup[pc].bid_iv
-                        ask_iv_down = ndown[pc].ask_iv
-                        ask_iv_up = nup[pc].ask_iv
-                        bid = (bid_iv_down + bid_iv_up) / 2
-                        ask = (ask_iv_down + ask_iv_up) / 2
+                        k_diff = k_up - k_down
                         q = self._quotes[iname]
+                        if k_diff == 0:
+                            bid = ndown[pc].bid_iv
+                            ask = ndown[pc].ask_iv
+                        else:
+                            bid_iv_down = ndown[pc].bid_iv
+                            bid_iv_up = nup[pc].bid_iv
+                            ask_iv_down = ndown[pc].ask_iv
+                            ask_iv_up = nup[pc].ask_iv
+                            bid = (bid_iv_down * (k_up-k) + bid_iv_up * (k-k_down)) / k_diff
+                            ask = (ask_iv_down * (k_up-k) + ask_iv_up * (k-k_down)) / k_diff
                         q.vols[0] = bid
                         q.vols[1] = ask
                         if self._index is None:
