@@ -1,17 +1,18 @@
 import asyncio
 import datetime
-import enum
 import json
 import logging
 import socket
 import math
 import time
-from typing import Optional
 
 import websockets
 
 import keys
 import thalex as th
+
+from common import *
+from deribit import Deribit
 
 MAX_DTE = 1
 MIN_DELTA = 0.2
@@ -25,15 +26,6 @@ W_ASK = 100  # $
 W_BID = 50  # $
 
 AMEND_THRESHOLD = 15  # $USD
-
-CID_IGNORE = -1
-CID_INSTRUMENTS = 1
-CID_SUBSCRIBE = 2
-CID_QUOTE = 3
-CID_CANCEL_SESSION = 4
-CID_LOGIN = 5
-CID_CANCEL_DISCO = 6
-CID_MMP = 7
 
 DERIBIT_URL = "wss://www.deribit.com/ws/api/v2"
 NETWORK = th.Network.DEV
@@ -59,115 +51,6 @@ def neighbours(chain, tgt_k) -> [float, float]:
             n_up = k
             break
     return n_down, n_up
-
-
-class InstrumentType(enum.Enum):
-    PUT = "put"
-    CALL = "call"
-    FUT = "future"
-    PERP = "perpetual"
-    COMBO = "combo"
-
-
-class Instrument:
-    def __init__(self, name: str, expiry: float, itype: InstrumentType, k: Optional[float]):
-        self.name: str = name
-        self.exp: float = expiry
-        self.type: InstrumentType = itype
-        self.k: float = k
-
-
-class Ticker:
-    def __init__(self, delta, mark_iv, bid_iv, ask_iv):
-        self.bid_iv: float = bid_iv
-        self.ask_iv: float = ask_iv
-        self.mark_iv: float = mark_iv
-        self.delta: float = delta
-
-    def __repr__(self):
-        return f"d: {self.delta}, m:{self.mark_iv} b: {self.bid_iv}, a: {self.ask_iv}"
-
-
-# [exp][k][itype] -> Ticker
-IvStore = dict[float, dict[float, dict[InstrumentType, Ticker]]]
-
-
-class Deribit:
-    def __init__(self, iv_store: IvStore):
-        self._ws = None
-        self._instruments: dict[str, Instrument] = {}
-        self._iv_store: IvStore = iv_store
-
-    async def connect(self):
-        self._ws = await websockets.connect(DERIBIT_URL, ping_interval=5)
-
-    async def subscribe(self, channels):
-        await self._send("public/subscribe", {"channels": channels}, CID_SUBSCRIBE)
-
-    # currency: BTC; ETH; USDC; USDT; EURR; any
-    # kind: future; option; spot; future_combo; option_combo; None=all
-    async def instruments(self, currency, kind=None):
-        await self._send("/public/get_instruments", {"currency": currency, "kind": kind}, CID_INSTRUMENTS)
-
-    async def disconnect(self):
-        await self._ws.close()
-
-    async def _send(self, method, params, id):
-        msg = json.dumps({
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params,
-            "id": id
-        })
-        await self._ws.send(msg)
-
-    async def recv(self):
-        return json.loads(await self._ws.recv())
-
-    def proc_instruments(self, instruments):
-        subs = []
-        for i in instruments:
-            assert i["kind"] == "option"  # only options are supported for now
-            i = Instrument(
-                name=i["instrument_name"],
-                expiry=i["expiration_timestamp"] / 1000,
-                itype=InstrumentType(i["option_type"]),
-                k=i["strike"]
-            )
-            self._instruments[i.name] = i
-            subs.append(f"ticker.{i.name}.100ms")
-        return subs
-
-    def proc_notification(self, n):
-        ch = n["channel"]
-        d = n["data"]
-        if ch.startswith("ticker"):
-            i = self._instruments.get(d["instrument_name"])
-            t = Ticker(bid_iv=d["bid_iv"]/100, ask_iv=d["ask_iv"]/100, mark_iv=d["mark_iv"]/100, delta=d["greeks"]["delta"])
-            if i is not None:
-                if i.exp not in self._iv_store:
-                    self._iv_store[i.exp] = {}
-                if i.k not in self._iv_store[i.exp]:
-                    self._iv_store[i.exp][i.k] = {}
-                self._iv_store[i.exp][i.k][i.type] = t
-
-    async def task(self):
-        await self.connect()
-        await self.instruments(UNDERLYING, "option")
-        while True:
-            msg = await self.recv()
-            cid = msg.get("id", CID_IGNORE)
-            method = msg.get("method", "")
-            if cid == CID_INSTRUMENTS:
-                subs = self.proc_instruments(msg["result"])
-                await self.subscribe(subs)
-            elif cid == CID_SUBSCRIBE:
-                logging.debug(f"subscription result: {msg}")
-                pass
-            elif method == "subscription":
-                self.proc_notification(msg["params"])
-            else:
-                logging.warning(f"Unhandled msg: {msg}")
 
 
 def call_discount(fwd: float, k: float, sigma: float, maturity: float) -> float:
@@ -379,7 +262,7 @@ async def main():
     run = True  # We set this to false when we want to stop
     while run:
         iv_store = {}
-        d = Deribit(iv_store)
+        d = Deribit(iv_store, DERIBIT_URL, UNDERLYING)
         thalex = th.Thalex(network=NETWORK)
         q = Quoter(iv_store, thalex)
         tasks = [
