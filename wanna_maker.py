@@ -28,7 +28,7 @@ W_BID = 50  # $
 AMEND_THRESHOLD = 15  # $USD
 
 DERIBIT_URL = "wss://www.deribit.com/ws/api/v2"
-NETWORK = th.Network.DEV
+NETWORK = th.Network.LOCAL
 UNDERLYING = "BTC"
 PRODUCT = "OBTCUSD"
 assert UNDERLYING in PRODUCT
@@ -87,10 +87,11 @@ class QuoteMeta:
         self.book: list[Optional[th.SideQuote]] = [None, None]  # bid, ask
         self.vols: list[Optional[float]] = [None, None]  # bid ask
         self.in_flight: bool = False
+        self.queued: bool = False
         self.instrument: Instrument = instrument
 
     def should_send(self) -> bool:
-        if self.in_flight:
+        if self.in_flight or self.queued:
             return False
         if (self.book[0] is None and self.theo.b is not None) or (self.book[1] is None and self.theo.a is not None):
             return True
@@ -132,6 +133,7 @@ class Quoter:
         self._quotes: dict[str, QuoteMeta] = {}
         self._send_queue: list[QuoteMeta] = []
         self._index: Optional[float] = None
+        self._armed: bool = False
 
     async def read_task(self):
         await self.thalex.connect()
@@ -145,7 +147,7 @@ class Quoter:
         await self.thalex.instruments(CID_INSTRUMENTS)
         await self.thalex.public_subscribe([f"price_index.{UNDERLYING}USD"], CID_SUBSCRIBE)
         await self.thalex.private_subscribe(["session.orders"], id=CID_SUBSCRIBE)
-        last_vols_up = 0
+        self._armed = True
         while True:
             msg = json.loads(await self.thalex.receive())
             cid = msg.get("id", CID_IGNORE)
@@ -162,15 +164,20 @@ class Quoter:
                 self.proc_notification(msg["channel_name"], msg["notification"])
             else:
                 logging.warning(f"Unhandled msg: {msg}")
-            if last_vols_up + 1 < time.time():
-                self.update_vols()
+
+    async def update_task(self):
+        while True:
+            await asyncio.sleep(1)
+            self.update_vols()
 
     def proc_notification(self, ch, n):
         if ch.startswith("price_index"):
             self._index = n["price"]
         elif ch == "session.orders":
             for o in n:
-                logging.info(o)
+                if o.get("delete_reason", "") == "mm_protection":
+                    logging.warning("MMP is hit. Disarming.")
+                    self._armed = False
                 q = self._quotes[o["instrument_name"]]
                 side = 0 if o["direction"] == "buy" else 1
                 if o["status"] in ["open", "partially_filled"]:
@@ -189,12 +196,15 @@ class Quoter:
             await asyncio.sleep(0.25)
             queue = self._send_queue
             self._send_queue = []
+            if not self._armed:
+                continue
             logging.debug(f"sending {len(queue)} quotes")
             for i in range(0, len(queue), BATCH):
                 batch = queue[i:i + BATCH]
                 quotes = [el.theo for el in batch]
                 for el in batch:
                     el.in_flight = True
+                    el.queued = False
                 await self.thalex.mass_quote(quotes, post_only=True, id=CID_QUOTE)
 
     def proc_instruments(self, instruments):
@@ -250,6 +260,7 @@ class Quoter:
                             continue
                         q.update_theo(self._index, now)
                         if q.should_send():
+                            q.queued = True
                             self._send_queue.append(q)
         logging.debug(f"Deribit doesn't have expiries: {nothave}")
 
@@ -268,7 +279,8 @@ async def main():
         tasks = [
             asyncio.create_task(d.task()),
             asyncio.create_task(q.read_task()),
-            asyncio.create_task(q.send_task())
+            asyncio.create_task(q.send_task()),
+            asyncio.create_task(q.update_task()),
         ]
         try:
             logging.info(f"STARTING on {NETWORK} {UNDERLYING=}")
