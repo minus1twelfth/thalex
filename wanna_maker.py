@@ -80,6 +80,14 @@ def put_discount(fwd: float, k: float, sigma: float, maturity: float) -> float:
         return 0.0
 
 
+def iv_offset_for_delta(vol_offsets: list[float], delta: float):
+    assert delta > 0
+    if delta <= 0.5:
+        return vol_offsets[0] + (vol_offsets[1] - vol_offsets[0]) * 4 * max(delta - 0.25, 0)
+    else:
+        return vol_offsets[1] + (vol_offsets[2] - vol_offsets[1]) * 4 * min(delta - 0.5, 0.25)
+
+
 class QuoteMeta:
     def __init__(self, instrument: Instrument):
         self.theo = th.Quote(instrument.name, None, None)
@@ -113,25 +121,30 @@ class QuoteMeta:
             self.theo.a = th.SideQuote(0, 0)
             return
         tte = (self.instrument.exp - now) / (3600 * 24 * 365.25)
+        vol_offsets = cfg.vol_offsets.get(self.instrument.exp_str, [0, 0, 0])
         if self.instrument.type == InstrumentType.CALL:
             if pp < MAX_POS:
-                p = round_to_tick(call_discount(self.fwd, self.instrument.k, self.vols[0], tte)) - cfg.width_bid_call
+                iv = self.vols[0] + iv_offset_for_delta(vol_offsets, self.delta)
+                p = round_to_tick(call_discount(self.fwd, self.instrument.k, iv, tte)) - cfg.width_bid_call
                 self.theo.b = th.SideQuote(p, cfg.quote_size if p > 10 else 0)
             else:
                 self.theo.b = th.SideQuote(0, 0)
             if pp > MIN_POS:
-                p = round_to_tick(call_discount(self.fwd, self.instrument.k, self.vols[1], tte)) + cfg.width_ask_call
+                iv = self.vols[1] + iv_offset_for_delta(vol_offsets, self.delta)
+                p = round_to_tick(call_discount(self.fwd, self.instrument.k, iv, tte)) + cfg.width_ask_call
                 self.theo.a = th.SideQuote(p, cfg.quote_size if p > 10 else 0)
             else:
                 self.theo.a = th.SideQuote(0, 0)
         elif self.instrument.type == InstrumentType.PUT:
             if pp < MAX_POS:
-                p = round_to_tick(put_discount(self.fwd, self.instrument.k, self.vols[0], tte)) - cfg.width_bid_put
+                iv = self.vols[0] + iv_offset_for_delta(vol_offsets, 1 - self.delta)
+                p = round_to_tick(put_discount(self.fwd, self.instrument.k, iv, tte)) - cfg.width_bid_put
                 self.theo.b = th.SideQuote(p, cfg.quote_size if p > 10 else 0)
             else:
                 self.theo.b = th.SideQuote(0, 0)
             if pp > MIN_POS:
-                p = round_to_tick(put_discount(self.fwd, self.instrument.k, self.vols[1], tte)) + cfg.width_ask_put
+                iv = self.vols[1] + iv_offset_for_delta(vol_offsets, 1 - self.delta)
+                p = round_to_tick(put_discount(self.fwd, self.instrument.k, iv, tte)) + cfg.width_ask_put
                 self.theo.a = th.SideQuote(p, cfg.quote_size if p > 10 else 0)
             else:
                 self.theo.a = th.SideQuote(0, 0)
