@@ -21,7 +21,6 @@ BATCH = 100  # Mass Quote batch size
 DISCO_SECS = 10  # cancel on disconnect seconds
 MIN_POS = -0.1
 MAX_POS = 0.1
-LABEL = "tommy-script"
 
 AMEND_THRESHOLD = 15  # $USD
 
@@ -230,7 +229,7 @@ class Quoter:
                 for el in batch:
                     el.in_flight = True
                     el.queued = False
-                await self.thalex.mass_quote(quotes, post_only=True, id=CID_QUOTE, label=LABEL)
+                await self.thalex.mass_quote(quotes, post_only=True, id=CID_QUOTE, label=self.cfg.label)
 
     def proc_instruments(self, instruments):
         now = datetime.datetime.now(datetime.UTC).timestamp()
