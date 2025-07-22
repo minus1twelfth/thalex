@@ -170,7 +170,6 @@ class Quoter:
             id=CID_LOGIN,
         )
         await self.thalex.set_cancel_on_disconnect(DISCO_SECS, CID_CANCEL_DISCO)
-        await self.thalex.set_mm_protection(PRODUCT, self.cfg.mmp_size, self.cfg.mmp_size, id=CID_MMP)
         await self.thalex.instruments(CID_INSTRUMENTS)
         await self.thalex.public_subscribe([f"price_index.{UNDERLYING}USD"], CID_SUBSCRIBE)
         await self.thalex.private_subscribe(["session.orders", "account.portfolio"], id=CID_SUBSCRIBE)
@@ -231,7 +230,9 @@ class Quoter:
                     await self.thalex.cancel_mass_quote()
                     is_quoting = False
                 continue
-            is_quoting = True
+            elif not is_quoting:
+                await self.thalex.set_mm_protection(PRODUCT, self.cfg.mmp_size, self.cfg.mmp_size, id=CID_MMP)
+                is_quoting = True
             queue = self._send_queue
             self._send_queue = []
             for i in range(0, len(queue), BATCH):
