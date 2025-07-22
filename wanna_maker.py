@@ -14,16 +14,11 @@ import thalex as th
 
 from common import *
 from deribit import Deribit
+from settings import default_settings, Settings
 
 MAX_DTE = 7
-MIN_DELTA = 0.2
-MAX_DELTA = 0.8
-LOTS = 0.1
 BATCH = 100  # Mass Quote batch size
 DISCO_SECS = 10  # cancel on disconnect seconds
-MMP_SIZE = 3 * LOTS
-W_ASK = 100  # $
-W_BID = 100  # $
 MIN_POS = -0.1
 MAX_POS = 0.1
 LABEL = "tommy-script"
@@ -35,8 +30,6 @@ NETWORK = th.Network.DEV
 UNDERLYING = "BTC"
 PRODUCT = "OBTCUSD"
 assert UNDERLYING in PRODUCT
-
-
 
 # Async function to start aiohttp server
 async def run_http_server():
@@ -125,41 +118,42 @@ class QuoteMeta:
             return True
         return False
 
-    def update_theo(self, index: float, now: float, pp: float):
+    def update_theo(self, index: float, now: float, pp: float, cfg: Settings):
         logging.debug(f"{index=} {self.instrument.name} {self.delta=} {self.fwd=} {self.vols=}")
-        if self.delta is None or self.fwd is None or not MIN_DELTA < abs(self.delta) < MAX_DELTA:
+        if self.delta is None or self.fwd is None or not cfg.min_delta < abs(self.delta) < cfg.max_delta:
             self.theo.b = th.SideQuote(0, 0)
             self.theo.a = th.SideQuote(0, 0)
             return
         tte = (self.instrument.exp - now) / (3600 * 24 * 365.25)
         if self.instrument.type == InstrumentType.CALL:
             if pp < MAX_POS:
-                p = round_to_tick(call_discount(self.fwd, self.instrument.k, self.vols[0], tte)) - W_BID
-                self.theo.b = th.SideQuote(p, LOTS if p > 10 else 0)
+                p = round_to_tick(call_discount(self.fwd, self.instrument.k, self.vols[0], tte)) - cfg.width_bid_call
+                self.theo.b = th.SideQuote(p, cfg.quote_size if p > 10 else 0)
             else:
                 self.theo.b = th.SideQuote(0, 0)
             if pp > MIN_POS:
-                p = round_to_tick(call_discount(self.fwd, self.instrument.k, self.vols[1], tte)) + W_ASK
-                self.theo.a = th.SideQuote(p, LOTS if p > 10 else 0)
+                p = round_to_tick(call_discount(self.fwd, self.instrument.k, self.vols[1], tte)) + cfg.width_ask_call
+                self.theo.a = th.SideQuote(p, cfg.quote_size if p > 10 else 0)
             else:
                 self.theo.a = th.SideQuote(0, 0)
         elif self.instrument.type == InstrumentType.PUT:
             if pp < MAX_POS:
-                p = round_to_tick(put_discount(self.fwd, self.instrument.k, self.vols[0], tte)) - W_BID
-                self.theo.b = th.SideQuote(p, LOTS if p > 10 else 0)
+                p = round_to_tick(put_discount(self.fwd, self.instrument.k, self.vols[0], tte)) - cfg.width_bid_put
+                self.theo.b = th.SideQuote(p, cfg.quote_size if p > 10 else 0)
             else:
                 self.theo.b = th.SideQuote(0, 0)
             if pp > MIN_POS:
-                p = round_to_tick(put_discount(self.fwd, self.instrument.k, self.vols[1], tte)) + W_ASK
-                self.theo.a = th.SideQuote(p, LOTS if p > 10 else 0)
+                p = round_to_tick(put_discount(self.fwd, self.instrument.k, self.vols[1], tte)) + cfg.width_ask_put
+                self.theo.a = th.SideQuote(p, cfg.quote_size if p > 10 else 0)
             else:
                 self.theo.a = th.SideQuote(0, 0)
         logging.debug(f"{index=} {self.fwd=} {self.vols=} {self.instrument.name} theo: {self.theo}")
 
 
 class Quoter:
-    def __init__(self, iv_store: IvStore, thalex: th.Thalex):
+    def __init__(self, iv_store: IvStore, thalex: th.Thalex, cfg: Settings):
         self.thalex = thalex
+        self.cfg = cfg
         self._iv_store: IvStore = iv_store
         self._instruments = {}
         self._quotes: dict[str, QuoteMeta] = {}
@@ -176,7 +170,7 @@ class Quoter:
             id=CID_LOGIN,
         )
         await self.thalex.set_cancel_on_disconnect(DISCO_SECS, CID_CANCEL_DISCO)
-        await self.thalex.set_mm_protection(PRODUCT, MMP_SIZE, MMP_SIZE, id=CID_MMP)
+        await self.thalex.set_mm_protection(PRODUCT, self.cfg.mmp_size, self.cfg.mmp_size, id=CID_MMP)
         await self.thalex.instruments(CID_INSTRUMENTS)
         await self.thalex.public_subscribe([f"price_index.{UNDERLYING}USD"], CID_SUBSCRIBE)
         await self.thalex.private_subscribe(["session.orders", "account.portfolio"], id=CID_SUBSCRIBE)
@@ -305,7 +299,7 @@ class Quoter:
                         if self._index is None:
                             continue
                         pp = self.portfolio.get(q.instrument.name, 0)
-                        q.update_theo(self._index, now, pp)
+                        q.update_theo(self._index, now, pp, self.cfg)
                         if q.should_send():
                             q.queued = True
                             self._send_queue.append(q)
@@ -360,9 +354,8 @@ class Quoter:
             return None
 
     async def websocket_handler(self, websocket):
-        global MIN_DELTA, MAX_DELTA
-        await websocket.send(json.dumps({'min_delta': MIN_DELTA}))
-        await websocket.send(json.dumps({'max_delta': MAX_DELTA}))
+        await websocket.send(json.dumps({'min_delta': self.cfg.min_delta}))
+        await websocket.send(json.dumps({'max_delta': self.cfg.max_delta}))
         try:
             while True:
                 await websocket.send(json.dumps({'table_data': self.get_instrument_table_data()}))
@@ -374,9 +367,9 @@ class Quoter:
                             self._armed = message['status']
                             logging.info(f'set {self._armed}')
                         case 'min_delta':
-                            MIN_DELTA = float(message['value'])
+                            self.cfg.min_delta = float(message['value'])
                         case 'max_delta':
-                            MAX_DELTA = float(message['value'])
+                            self.cfg.max_delta = float(message['value'])
         except websockets.exceptions.ConnectionClosed:
             logging.info('Client connection closed')
             
@@ -396,11 +389,12 @@ async def main():
         format="%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s",
     )
     run = True  # We set this to false when we want to stop
+    cfg: Settings = default_settings()
     while run:
         iv_store = {}
         d = Deribit(iv_store, DERIBIT_URL, UNDERLYING)
         thalex = th.Thalex(network=NETWORK)
-        q = Quoter(iv_store, thalex)
+        q = Quoter(iv_store, thalex, cfg)
         app = web.Application()
         app.router.add_get('/', handle_http)
         runner = web.AppRunner(app)
