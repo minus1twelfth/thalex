@@ -323,23 +323,23 @@ class Quoter:
                 row = {}
                 call = exp_instr[strike][InstrumentType.CALL]
                 quote = self._quotes.get(call)
-                row['C vol bid'] = format_num(quote and quote.vols[0], 3)
+                row['C vol bid'] = f'{format_num(quote and quote.vols[0] * 100, 1)}%'
                 row['C theo bid'] = format_num(quote and quote.theo.b.p, 0)
                 row['C book bid'] = quote and quote.book[0] and repr(quote.book[0]) or '-'
                 row['C book ask'] = quote and quote.book[1] and repr(quote.book[1]) or '-'
                 row['C theo ask'] = format_num(quote and quote.theo.a.p, 0)
-                row['C vol ask'] = format_num(quote and quote.vols[1], 3)
+                row['C vol ask'] = f'{format_num(quote and quote.vols[1] * 100, 1)}%'
                 row['C delta'] = format_num(quote and quote.delta, 2)
                 row['instrument'] = call[:-2]
                 put = exp_instr[strike][InstrumentType.PUT]
                 quote = self._quotes.get(put)
                 row['P delta'] = format_num(quote and quote.delta, 2)
-                row['P vol bid'] = format_num(quote and quote.vols[0], 3)
+                row['P vol bid'] = f'{format_num(quote and quote.vols[0] * 100, 1)}%'
                 row['P theo bid'] = format_num(quote and quote.theo.b.p, 0)
                 row['P book bid'] = quote and quote.book[0] and repr(quote.book[0]) or '-'
                 row['P book ask'] = quote and quote.book[1] and repr(quote.book[1]) or '-'
                 row['P theo ask'] = format_num(quote and quote.theo.a.p, 0)
-                row['P vol ask'] = format_num(quote and quote.vols[1], 3)
+                row['P vol ask'] = f'{format_num(quote and quote.vols[1] * 100, 1)}%'
                 result.append(row)
             result.append({})
         return result
