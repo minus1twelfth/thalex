@@ -147,6 +147,10 @@
     } else {
       for (let key in obj) {
         const td = document.createElement('td');
+        const parts = key.split('.')
+        if (parts.length === 2) {
+          td.style.color = parts[1];
+        }
         td.textContent = obj[key];
         tr.appendChild(td);
       }
