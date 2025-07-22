@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>WebSocket JSON Table</title>
+  <style>
+    .table-break {
+      background-color: #ccc;
+      height: 10px;
+    }
+    table {
+      width: 80%;
+      border-collapse: collapse;
+      margin: 20px auto;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background: #f4f4f4;
+    }
+  </style>
+</head>
+<body>
+
+<label> <input type="checkbox" id="armed_checkbox">Armed</label>
+<label>| Websocket: </label>
+<label id="status_label">Status</label>
+<label>| Open orders: </label>
+<label id="open_orders_label">-</label>
+<br/>
+<label> Min Delta:<input type="text" size="5" id="min_delta_input"></label>
+<label> | Max Delta:<input type="text" size="5" id="max_delta_input"></label>
+
+
+<table id="data-table">
+  <thead>
+    <tr id="table-header"></tr>
+  </thead>
+  <tbody id="table-body"></tbody>
+</table>
+
+<script>
+
+  const ws = new WebSocket('ws://localhost:8501');
+  let heartbeatTimeout;
+
+  const startHeartbeat = () => {
+  console.log('startheartbeat');
+    clearTimeout(heartbeatTimeout);
+    heartbeatTimeout = setTimeout(() => {
+        document.getElementById('status_label').innerText = 'Timeout';
+        console.warn('Connection timed out. Closing socket.');
+        socket.close(); // or trigger reconnect logic here
+    }, 3000);
+  };
+
+  // Checkbox click listener
+  document.getElementById('armed_checkbox').addEventListener('click', function () {
+    const message = JSON.stringify({
+      type: 'armed_checkbox',
+      status: this.checked
+    });
+    ws.send(message);
+  });
+
+  document.getElementById('min_delta_input').addEventListener('change', function (event) {
+    const message = JSON.stringify({
+      type: 'min_delta',
+      value: event.target.value
+    });
+    ws.send(message);
+  });
+
+  document.getElementById('max_delta_input').addEventListener('change', function (event) {
+    const message = JSON.stringify({
+      type: 'max_delta',
+      value: event.target.value
+    });
+    ws.send(message);
+  });
+
+  ws.onopen = () => {
+    console.log('WebSocket connection opened.');
+    document.getElementById('status_label').innerText = 'Online';
+    startHeartbeat();
+  };
+
+  ws.onmessage = (event) => {
+    startHeartbeat();
+    const data = JSON.parse(event.data);
+    if ('table_data' in data) {
+      updateTable(data.table_data);
+    } else if ('armed' in data) {
+      document.getElementById('armed_checkbox').checked = data.armed;
+    } else if ('open_orders' in data) {
+      document.getElementById('open_orders_label').innerText = data.open_orders;
+    } else if ('min_delta' in data) {
+      document.getElementById('min_delta_input').value = data.min_delta;
+    } else if ('max_delta' in data) {
+      document.getElementById('max_delta_input').value = data.max_delta;
+    } else if ('max_dte' in data) {
+      document.getElementById('max_dte_input').value = data.max_dte;
+    }
+  };
+
+  ws.onerror = (err) => {
+    document.getElementById('status_label').innerText = 'Connect error';
+    console.error('WebSocket error:', err);
+  };
+
+  function updateTable(data) {
+    const tableHeader = document.getElementById('table-header');
+    tableHeader.innerHTML = "";
+    const tableBody = document.getElementById('table-body');
+    tableBody.innerHTML = "";
+
+    if (Array.isArray(data)) {
+      data.forEach(addRowToTable);
+    }
+  }
+
+  function addRowToTable(obj) {
+    const tableHeader = document.getElementById('table-header');
+    const tableBody = document.getElementById('table-body');
+
+    // Create headers if not already present
+    if (tableHeader.children.length === 0) {
+      for (let key in obj) {
+        const th = document.createElement('th');
+        th.textContent = key;
+        tableHeader.appendChild(th);
+      }
+    }
+
+    // Create a new row
+    const tr = document.createElement('tr');
+    if (Object.keys(obj).length === 0) {
+        const breakCell = document.createElement('td');
+        const firstRow = tableBody.rows[0];
+        const columnCount = firstRow ? firstRow.cells.length : 1;
+        breakCell.colSpan = columnCount;
+        breakCell.className = 'table-break';
+        tr.appendChild(breakCell);
+    } else {
+      for (let key in obj) {
+        const td = document.createElement('td');
+        td.textContent = obj[key];
+        tr.appendChild(td);
+      }
+    }
+    tableBody.appendChild(tr);
+  }
+</script>
+
+</body>
+</html>

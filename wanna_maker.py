@@ -5,6 +5,7 @@ import logging
 import socket
 import math
 import time
+from aiohttp import web
 
 import websockets
 
@@ -35,6 +36,23 @@ UNDERLYING = "BTC"
 PRODUCT = "OBTCUSD"
 assert UNDERLYING in PRODUCT
 
+
+
+# Async function to start aiohttp server
+async def run_http_server():
+    app = web.Application()
+    app.router.add_get('/', handle_http)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, 'localhost', 8500)
+    await site.start()
+    logging.info("http server started")
+    # Keep the server running forever
+    while True:
+        await asyncio.sleep(3600)
+
+async def handle_http(request):
+    return web.FileResponse('index.html')
 
 def round_to_tick(value):
     tick = 5
@@ -162,7 +180,6 @@ class Quoter:
         await self.thalex.instruments(CID_INSTRUMENTS)
         await self.thalex.public_subscribe([f"price_index.{UNDERLYING}USD"], CID_SUBSCRIBE)
         await self.thalex.private_subscribe(["session.orders", "account.portfolio"], id=CID_SUBSCRIBE)
-        self._armed = True
         while True:
             msg = json.loads(await self.thalex.receive())
             cid = msg.get("id", CID_IGNORE)
@@ -200,7 +217,7 @@ class Quoter:
                 if o["status"] in ["open", "partially_filled"]:
                     q.book[side] = th.SideQuote(o["price"], o["remaining_amount"])
                 else:
-                    q.book[side] = th.SideQuote(0, 0)
+                    q.book[side] = None
                 q.in_flight = False
         elif ch.startswith("ticker"):
             iname = ch.split(".")[1]
@@ -212,13 +229,17 @@ class Quoter:
                 self.portfolio[pp["instrument_name"]] = pp["position"]
 
     async def send_task(self):
+        is_quoting = False
         while True:
             await asyncio.sleep(0.25)
+            if not self._armed:
+                if is_quoting:
+                    await self.thalex.cancel_mass_quote()
+                    is_quoting = False
+                continue
+            is_quoting = True
             queue = self._send_queue
             self._send_queue = []
-            if not self._armed:
-                continue
-            logging.debug(f"sending {len(queue)} quotes")
             for i in range(0, len(queue), BATCH):
                 batch = queue[i:i + BATCH]
                 quotes = [el.theo for el in batch]
@@ -288,7 +309,85 @@ class Quoter:
                         if q.should_send():
                             q.queued = True
                             self._send_queue.append(q)
+
         logging.debug(f"Deribit doesn't have expiries: {nothave}")
+
+    def get_instrument_table_data(self):
+        result = []
+        expiries = list(self._instruments.keys())
+        expiries.sort()
+
+        for exp in expiries:
+            exp_instr = self._instruments[exp]
+            strikes = list(exp_instr.keys())
+            strikes.sort()
+            for strike in strikes:
+                row = {}
+                call = exp_instr[strike][InstrumentType.CALL]
+                quote = self._quotes.get(call)
+                row['C vol bid'] = format_num(quote and quote.vols[0], 3)
+                row['C theo bid'] = format_num(quote and quote.theo.b.p, 0)
+                row['C book bid'] = quote and quote.book[0] and repr(quote.book[0]) or '-'
+                row['C book ask'] = quote and quote.book[1] and repr(quote.book[1]) or '-'
+                row['C theo ask'] = format_num(quote and quote.theo.a.p, 0)
+                row['C vol ask'] = format_num(quote and quote.vols[1], 3)
+                row['C delta'] = format_num(quote and quote.delta, 2)
+                row['instrument'] = call[:-2]
+                put = exp_instr[strike][InstrumentType.PUT]
+                quote = self._quotes.get(put)
+                row['P delta'] = format_num(quote and quote.delta, 2)
+                row['P vol bid'] = format_num(quote and quote.vols[0], 3)
+                row['P theo bid'] = format_num(quote and quote.theo.b.p, 0)
+                row['P book bid'] = quote and quote.book[0] and repr(quote.book[0]) or '-'
+                row['P book ask'] = quote and quote.book[1] and repr(quote.book[1]) or '-'
+                row['P theo ask'] = format_num(quote and quote.theo.a.p, 0)
+                row['P vol ask'] = format_num(quote and quote.vols[1], 3)
+                result.append(row)
+            result.append({})
+        return result
+
+
+    def count_open_orders(self):
+        open_orders = 0
+        for quote in self._quotes.values():
+            open_orders += sum(1 for o in quote.book if o is not None)
+        return open_orders
+
+    async def try_read_ws_message(self, websocket):
+        try:
+            return json.loads(await asyncio.wait_for(websocket.recv(), timeout=1))
+        except asyncio.TimeoutError:
+            return None
+
+    async def websocket_handler(self, websocket):
+        global MIN_DELTA, MAX_DELTA
+        await websocket.send(json.dumps({'min_delta': MIN_DELTA}))
+        await websocket.send(json.dumps({'max_delta': MAX_DELTA}))
+        try:
+            while True:
+                await websocket.send(json.dumps({'table_data': self.get_instrument_table_data()}))
+                await websocket.send(json.dumps({'armed': self._armed}))
+                await websocket.send(json.dumps({'open_orders': self.count_open_orders()}))
+                if message := await self.try_read_ws_message(websocket):
+                    match message.get('type'):
+                        case 'armed_checkbox':
+                            self._armed = message['status']
+                            logging.info(f'set {self._armed}')
+                        case 'min_delta':
+                            MIN_DELTA = float(message['value'])
+                        case 'max_delta':
+                            MAX_DELTA = float(message['value'])
+        except websockets.exceptions.ConnectionClosed:
+            logging.info('Client connection closed')
+            
+    async def run_websocket_server(self):
+        await websockets.serve(self.websocket_handler, "localhost", 8501)
+
+
+def format_num(num, precision):
+    if num is None:
+        return '-'
+    return f'{num:.{precision}f}'
 
 
 async def main():
@@ -302,11 +401,19 @@ async def main():
         d = Deribit(iv_store, DERIBIT_URL, UNDERLYING)
         thalex = th.Thalex(network=NETWORK)
         q = Quoter(iv_store, thalex)
+        app = web.Application()
+        app.router.add_get('/', handle_http)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, 'localhost', 8500)
+        await site.start()
+        logging.info("http server started")
         tasks = [
             asyncio.create_task(d.task()),
             asyncio.create_task(q.read_task()),
             asyncio.create_task(q.send_task()),
             asyncio.create_task(q.update_task()),
+            asyncio.create_task(q.run_websocket_server()),
         ]
         try:
             logging.info(f"STARTING on {NETWORK} {UNDERLYING=}")
@@ -318,6 +425,7 @@ async def main():
             run = False
         except:
             logging.exception("There was an unexpected error:")
+        await runner.cleanup()
         if thalex.connected():
             await thalex.cancel_session(id=CID_CANCEL_SESSION)
             while True:
@@ -331,4 +439,5 @@ async def main():
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())
