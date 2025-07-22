@@ -31,21 +31,10 @@ UNDERLYING = "BTC"
 PRODUCT = "OBTCUSD"
 assert UNDERLYING in PRODUCT
 
-# Async function to start aiohttp server
-async def run_http_server():
-    app = web.Application()
-    app.router.add_get('/', handle_http)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, 'localhost', 8500)
-    await site.start()
-    logging.info("http server started")
-    # Keep the server running forever
-    while True:
-        await asyncio.sleep(3600)
 
 async def handle_http(request):
     return web.FileResponse('index.html')
+
 
 def round_to_tick(value):
     tick = 5
