@@ -21,8 +21,9 @@ class InstrumentType(enum.Enum):
 
 
 class Instrument:
-    def __init__(self, name: str, expiry: float, itype: InstrumentType, k: Optional[float]):
+    def __init__(self, name: str, expiry: float, exp_str: str, itype: InstrumentType, k: Optional[float]):
         self.name: str = name
+        self.exp_str: str = exp_str
         self.exp: float = expiry
         self.type: InstrumentType = itype
         self.k: float = k
@@ -39,5 +40,5 @@ class Ticker:
         return f"d: {self.delta}, m:{self.mark_iv} b: {self.bid_iv}, a: {self.ask_iv}"
 
 
-# [exp][k][itype] -> Ticker
-IvStore = dict[float, dict[float, dict[InstrumentType, Ticker]]]
+# [exp_str][k][itype] -> Ticker
+IvStore = dict[str, dict[float, dict[InstrumentType, Ticker]]]

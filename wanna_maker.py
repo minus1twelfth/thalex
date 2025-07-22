@@ -143,7 +143,7 @@ class Quoter:
         self.thalex = thalex
         self.cfg = cfg
         self._iv_store: IvStore = iv_store
-        self._instruments = {}
+        self._instruments: dict[str, dict[float, dict[InstrumentType, str]]] = {}
         self._quotes: dict[str, QuoteMeta] = {}
         self._send_queue: list[QuoteMeta] = []
         self._index: Optional[float] = None
@@ -237,17 +237,19 @@ class Quoter:
         for i in instruments:
             expiry = i.get("expiration_timestamp", now + MAX_DTE + 50000)
             if i["product"] == PRODUCT and i["type"] == "option" and expiry < now + MAX_DTE * 24 * 3600:
+                exp_str = i["expiry_date"]
                 i = Instrument(
                     name=i["instrument_name"],
                     expiry=expiry,
+                    exp_str=exp_str,
                     itype=InstrumentType(i["option_type"]),
                     k=i["strike_price"]
                 )
-                if i.exp not in self._instruments:
-                    self._instruments[i.exp] = {}
-                if i.k not in self._instruments[i.exp]:
-                    self._instruments[i.exp][i.k] = {}
-                self._instruments[i.exp][i.k][i.type] = i.name
+                if exp_str not in self._instruments:
+                    self._instruments[exp_str] = {}
+                if i.k not in self._instruments[exp_str]:
+                    self._instruments[exp_str][i.k] = {}
+                self._instruments[exp_str][i.k][i.type] = i.name
                 self._quotes[i.name] = QuoteMeta(i)
                 subs.append(f"ticker.{i.name}.500ms")
         return subs
@@ -255,11 +257,11 @@ class Quoter:
     def update_vols(self):
         now = datetime.datetime.now(datetime.UTC).timestamp()
         nothave = []
-        for exp, chain in self._instruments.items():
-            iv_chain = self._iv_store.get(exp)
+        for exp_str, chain in self._instruments.items():
+            iv_chain = self._iv_store.get(exp_str)
             if iv_chain is None:
-                if exp not in nothave:
-                    nothave.append(exp)
+                if exp_str not in nothave:
+                    nothave.append(exp_str)
             else:
                 d_chain = sorted(iv_chain.keys())
                 for k, putcall in chain.items():
@@ -328,7 +330,6 @@ class Quoter:
                 result.append(row)
             result.append({})
         return result
-
 
     def count_open_orders(self):
         open_orders = 0
@@ -408,6 +409,7 @@ async def main():
             run = False
         except:
             logging.exception("There was an unexpected error:")
+            time.sleep(0.5)
         await runner.cleanup()
         if thalex.connected():
             await thalex.cancel_session(id=CID_CANCEL_SESSION)
