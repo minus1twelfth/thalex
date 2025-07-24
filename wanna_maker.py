@@ -8,6 +8,7 @@ import time
 from aiohttp import web
 
 import websockets
+from thalex import SideQuote
 
 import keys
 import thalex as th
@@ -87,6 +88,14 @@ def iv_offset_for_delta(vol_offsets: list[float], delta: float):
     else:
         return vol_offsets[1] + (vol_offsets[2] - vol_offsets[1]) * 4 * min(delta - 0.5, 0.25)
 
+def quote_needs_update(book: Optional[SideQuote], theo: SideQuote):
+    assert theo is not None
+    if book is None:
+        return theo.a > 0 # insert
+    if theo.a > 0:
+        return not theo.p - AMEND_THRESHOLD < book.p < theo.p + AMEND_THRESHOLD # amend
+    else:
+        return True # delete
 
 class QuoteMeta:
     def __init__(self, instrument: Instrument):
@@ -102,17 +111,7 @@ class QuoteMeta:
     def should_send(self) -> bool:
         if self.in_flight or self.queued:
             return False
-        if (self.book[0] is None and self.theo.b is not None) or (self.book[1] is None and self.theo.a is not None):
-            return True
-        assert self.theo.b is not None
-        assert self.theo.a is not None
-        if not self.theo.b.p - AMEND_THRESHOLD < self.book[0].p < self.theo.b.p + AMEND_THRESHOLD:
-            return True
-        if not self.theo.a.p - AMEND_THRESHOLD < self.book[1].p < self.theo.a.p + AMEND_THRESHOLD:
-            return True
-        if self.book[1].a < self.theo.a.a:
-            return True
-        return False
+        return quote_needs_update(self.book[0], self.theo.b) or quote_needs_update(self.book[1], self.theo.a)
 
     def update_theo(self, index: float, now: float, pp: float, cfg: Settings):
         logging.debug(f"{index=} {self.instrument.name} {self.delta=} {self.fwd=} {self.vols=}")
@@ -242,6 +241,7 @@ class Quoter:
                 for el in batch:
                     el.in_flight = True
                     el.queued = False
+                logging.info(f'Sending {len(quotes)} quotes')
                 await self.thalex.mass_quote(quotes, post_only=True, id=CID_QUOTE, label=self.cfg.label)
 
     def proc_instruments(self, instruments):
@@ -304,7 +304,7 @@ class Quoter:
                             continue
                         pp = self.portfolio.get(q.instrument.name, 0)
                         q.update_theo(self._index, now, pp, self.cfg)
-                        if q.should_send():
+                        if q.should_send() and self._armed:
                             q.queued = True
                             self._send_queue.append(q)
 
@@ -326,13 +326,13 @@ class Quoter:
                 row['C vol bid'] = f'{format_num(quote and quote.vols[0] * 100, 1)}%'
                 if quote and quote.book[0]:
                     row['C bid.green'] = repr(quote.book[0])
-                elif quote and quote.theo:
+                elif quote and quote.theo and quote.theo.b.a:
                     row['C bid'] = repr(quote.theo.b)
                 else:
                     row['C bid'] = '-'
                 if quote and quote.book[1]:
                     row['C ask.red'] = repr(quote.book[1])
-                elif quote and quote.theo:
+                elif quote and quote.theo and quote.theo.a.a:
                     row['C ask'] = repr(quote.theo.a)
                 else:
                     row['C ask'] = '-'
@@ -345,13 +345,13 @@ class Quoter:
                 row['P vol bid'] = f'{format_num(quote and quote.vols[0] * 100, 1)}%'
                 if quote and quote.book[0]:
                     row['P bid.green'] = repr(quote.book[0])
-                elif quote and quote.theo:
+                elif quote and quote.theo and quote.theo.b.a:
                     row['P bid'] = repr(quote.theo.b)
                 else:
                     row['P bid'] = '-'
                 if quote and quote.book[1]:
                     row['P ask.red'] = repr(quote.book[1])
-                elif quote and quote.theo:
+                elif quote and quote.theo and quote.theo.a.a:
                     row['P ask'] = repr(quote.theo.a)
                 else:
                     row['P ask'] = '-'
