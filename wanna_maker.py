@@ -1,5 +1,4 @@
 import asyncio
-import datetime
 import json
 import logging
 import socket
@@ -15,7 +14,7 @@ import thalex as th
 
 from common import *
 from deribit import Deribit
-from settings import default_settings, Settings
+from settings import Settings
 
 MAX_DTE = 7
 BATCH = 100  # Mass Quote batch size
@@ -130,8 +129,8 @@ class QuoteMeta:
             self.theo.b = th.SideQuote(0, 0)
             self.theo.a = th.SideQuote(0, 0)
             return
-        tte = (self.instrument.exp - now) / (3600 * 24 * 365.25)
-        vol_offsets = cfg.vol_offsets.get(self.instrument.exp_str, [0, 0, 0])
+        tte = (self.instrument.expiry.date.timestamp() - now) / (3600 * 24 * 365.25)
+        vol_offsets = cfg.vol_offsets.get(str(self.instrument.expiry), [0, 0, 0])
         if self.instrument.type == InstrumentType.CALL:
             if pp < MAX_POS:
                 iv = self.vols[0] + iv_offset_for_delta(vol_offsets, self.delta)
@@ -170,7 +169,7 @@ class Quoter:
         self.thalex = thalex
         self.cfg = cfg
         self._iv_store: IvStore = iv_store
-        self._instruments: dict[str, dict[float, dict[InstrumentType, str]]] = {}
+        self._instruments: dict[Expiry, dict[float, dict[InstrumentType, str]]] = {}
         self._quotes: dict[str, QuoteMeta] = {}
         self._send_queue: list[QuoteMeta] = []
         self._index: Optional[float] = None
@@ -265,63 +264,59 @@ class Quoter:
         for i in instruments:
             expiry = i.get("expiration_timestamp", now + MAX_DTE + 50000)
             if i["product"] == PRODUCT and i["type"] == "option" and expiry < now + MAX_DTE * 24 * 3600:
-                exp_str = i["expiry_date"]
                 i = Instrument(
                     name=i["instrument_name"],
-                    expiry=expiry,
-                    exp_str=exp_str,
+                    expiry=Expiry(expiry),
                     itype=InstrumentType(i["option_type"]),
                     k=i["strike_price"]
                 )
-                if exp_str not in self._instruments:
-                    self._instruments[exp_str] = {}
-                if i.k not in self._instruments[exp_str]:
-                    self._instruments[exp_str][i.k] = {}
-                self._instruments[exp_str][i.k][i.type] = i.name
+                exp_instruments = self._instruments.setdefault(i.expiry, {})
+                strike_instruments = exp_instruments.setdefault(i.k, {})
+                strike_instruments[i.type] = i.name
                 self._quotes[i.name] = QuoteMeta(i)
                 subs.append(f"ticker.{i.name}.500ms")
         return subs
 
     def update_vols(self):
         now = datetime.datetime.now(datetime.UTC).timestamp()
-        nothave = []
-        for exp_str, chain in self._instruments.items():
-            iv_chain = self._iv_store.get(exp_str)
+        nothave = set()
+        for expiry, chain in self._instruments.items():
+            iv_chain = self._iv_store.get(expiry)
             if iv_chain is None:
-                if exp_str not in nothave:
-                    nothave.append(exp_str)
-            else:
-                d_chain = sorted(iv_chain.keys())
-                for k, putcall in chain.items():
-                    k_down, k_up = neighbours(d_chain, k)
-                    if k_down is None or k_up is None:
+                nothave.add(expiry)
+                continue
+
+            d_chain = sorted(iv_chain.keys())
+            for k, putcall in chain.items():
+                k_down, k_up = neighbours(d_chain, k)
+                if k_down is None or k_up is None:
+                    continue
+                for pc, iname in putcall.items():
+                    nup = iv_chain[k_up]
+                    ndown = iv_chain[k_down]
+                    if pc not in ndown or pc not in nup:
                         continue
-                    for pc, iname in putcall.items():
-                        nup = iv_chain[k_up]
-                        ndown = iv_chain[k_down]
-                        if pc not in ndown or pc not in nup:
-                            continue
-                        k_diff = k_up - k_down
-                        q = self._quotes[iname]
-                        if k_diff == 0:
-                            bid = ndown[pc].bid_iv
-                            ask = ndown[pc].ask_iv
-                        else:
-                            bid_iv_down = ndown[pc].bid_iv
-                            bid_iv_up = nup[pc].bid_iv
-                            ask_iv_down = ndown[pc].ask_iv
-                            ask_iv_up = nup[pc].ask_iv
-                            bid = (bid_iv_down * (k_up-k) + bid_iv_up * (k-k_down)) / k_diff
-                            ask = (ask_iv_down * (k_up-k) + ask_iv_up * (k-k_down)) / k_diff
-                        q.vols[0] = bid
-                        q.vols[1] = ask
-                        if self._index is None:
-                            continue
-                        pp = self.portfolio.get(q.instrument.name, 0)
-                        q.update_theo(self._index, now, pp, self.cfg)
-                        if q.should_send() and self._armed:
-                            q.queued = True
-                            self._send_queue.append(q)
+                    k_diff = k_up - k_down
+                    q = self._quotes[iname]
+                    if k_diff == 0:
+                        bid = ndown[pc].bid_iv
+                        ask = ndown[pc].ask_iv
+                    else:
+                        bid_iv_down = ndown[pc].bid_iv
+                        bid_iv_up = nup[pc].bid_iv
+                        ask_iv_down = ndown[pc].ask_iv
+                        ask_iv_up = nup[pc].ask_iv
+                        bid = (bid_iv_down * (k_up-k) + bid_iv_up * (k-k_down)) / k_diff
+                        ask = (ask_iv_down * (k_up-k) + ask_iv_up * (k-k_down)) / k_diff
+                    q.vols[0] = bid
+                    q.vols[1] = ask
+                    if self._index is None:
+                        continue
+                    pp = self.portfolio.get(q.instrument.name, 0)
+                    q.update_theo(self._index, now, pp, self.cfg)
+                    if q.should_send() and self._armed:
+                        q.queued = True
+                        self._send_queue.append(q)
 
         logging.debug(f"Deribit doesn't have expiries: {nothave}")
 

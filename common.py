@@ -1,3 +1,4 @@
+import datetime
 import enum
 from typing import Optional
 
@@ -19,12 +20,30 @@ class InstrumentType(enum.Enum):
     PERP = "perpetual"
     COMBO = "combo"
 
+class Expiry:
+    def __init__(self, ts):
+        self.date = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
+        self.name = self.date.strftime('%d%b%y').upper()
+
+    def __lt__(self, other):
+        return self.date < other.date
+
+    def __eq__(self, other):
+        return self.date == other.date
+
+    def __hash__(self):
+        return hash(self.date)
+
+    def __str__(self):
+        return self.name
+
+    def __repr__(self):
+        return str(self)
 
 class Instrument:
-    def __init__(self, name: str, expiry: float, exp_str: str, itype: InstrumentType, k: Optional[float]):
+    def __init__(self, name: str, expiry: Expiry, itype: InstrumentType, k: Optional[float]):
         self.name: str = name
-        self.exp_str: str = exp_str
-        self.exp: float = expiry
+        self.expiry: Expiry = expiry
         self.type: InstrumentType = itype
         self.k: float = k
 
@@ -41,4 +60,4 @@ class Ticker:
 
 
 # [exp_str][k][itype] -> Ticker
-IvStore = dict[str, dict[float, dict[InstrumentType, Ticker]]]
+IvStore = dict[Expiry, dict[float, dict[InstrumentType, Ticker]]]

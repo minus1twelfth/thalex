@@ -48,8 +48,7 @@ class Deribit:
             expiry = i["expiration_timestamp"] / 1000
             i = Instrument(
                 name=i["instrument_name"],
-                expiry=expiry,
-                exp_str=datetime.fromtimestamp(expiry).strftime('%Y-%m-%d'),
+                expiry=Expiry(expiry),
                 itype=InstrumentType(i["option_type"]),
                 k=i["strike"]
             )
@@ -64,11 +63,9 @@ class Deribit:
             i = self._instruments.get(d["instrument_name"])
             t = Ticker(bid_iv=d["bid_iv"]/100, ask_iv=d["ask_iv"]/100, mark_iv=d["mark_iv"]/100, delta=d["greeks"]["delta"])
             if i is not None:
-                if i.exp_str not in self._iv_store:
-                    self._iv_store[i.exp_str] = {}
-                if i.k not in self._iv_store[i.exp_str]:
-                    self._iv_store[i.exp_str][i.k] = {}
-                self._iv_store[i.exp_str][i.k][i.type] = t
+                iv_exp = self._iv_store.setdefault(i.expiry, {})
+                iv_strike = iv_exp.setdefault(i.k, {})
+                iv_strike[i.type] = t
 
     async def task(self):
         await self.connect()
