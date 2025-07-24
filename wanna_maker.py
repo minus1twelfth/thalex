@@ -333,39 +333,39 @@ class Quoter:
                 row = {}
                 call = exp_instr[strike][InstrumentType.CALL]
                 quote = self._quotes.get(call)
-                row['C vol bid'] = f'{format_num(quote and quote.vols[0] * 100, 1)}%'
+                row['C vol bid'] = f'{format_num(quote and quote.vols[0] and quote.vols[0] * 100, 1)}%'
                 if quote and quote.book[0]:
                     row['C bid.green'] = repr(quote.book[0])
-                elif quote and quote.theo and quote.theo.b.a:
+                elif quote and quote.theo and quote.theo.b and quote.theo.b.a:
                     row['C bid'] = repr(quote.theo.b)
                 else:
                     row['C bid'] = '-'
                 if quote and quote.book[1]:
                     row['C ask.red'] = repr(quote.book[1])
-                elif quote and quote.theo and quote.theo.a.a:
+                elif quote and quote.theo and quote.theo.a and quote.theo.a.a:
                     row['C ask'] = repr(quote.theo.a)
                 else:
                     row['C ask'] = '-'
-                row['C vol ask'] = f'{format_num(quote and quote.vols[1] * 100, 1)}%'
+                row['C vol ask'] = f'{format_num(quote and quote.vols[1] and quote.vols[1] * 100, 1)}%'
                 row['C delta'] = format_num(quote and quote.delta, 2)
                 row['instrument'] = call[:-2]
                 put = exp_instr[strike][InstrumentType.PUT]
                 quote = self._quotes.get(put)
                 row['P delta'] = format_num(quote and quote.delta, 2)
-                row['P vol bid'] = f'{format_num(quote and quote.vols[0] * 100, 1)}%'
+                row['P vol bid'] = f'{format_num(quote and quote.vols[0] and quote.vols[0] * 100, 1)}%'
                 if quote and quote.book[0]:
                     row['P bid.green'] = repr(quote.book[0])
-                elif quote and quote.theo and quote.theo.b.a:
+                elif quote and quote.theo and quote.theo.b and quote.theo.b.a:
                     row['P bid'] = repr(quote.theo.b)
                 else:
                     row['P bid'] = '-'
                 if quote and quote.book[1]:
                     row['P ask.red'] = repr(quote.book[1])
-                elif quote and quote.theo and quote.theo.a.a:
+                elif quote and quote.theo and quote.theo.a and quote.theo.a.a:
                     row['P ask'] = repr(quote.theo.a)
                 else:
                     row['P ask'] = '-'
-                row['P vol ask'] = f'{format_num(quote and quote.vols[1] * 100, 1)}%'
+                row['P vol ask'] = f'{format_num(quote and quote.vols[1] and quote.vols[1] * 100, 1)}%'
                 result.append(row)
             result.append({})
         return result
