@@ -55,7 +55,9 @@
   console.log('startheartbeat');
     clearTimeout(heartbeatTimeout);
     heartbeatTimeout = setTimeout(() => {
-        document.getElementById('status_label').innerText = 'Timeout';
+        const status_label = document.getElementById('status_label');
+        status_label.innerText = 'Timeout';
+        status_label.style.color = 'red';
         console.warn('Connection timed out. Closing socket.');
         socket.close(); // or trigger reconnect logic here
     }, 3000);
@@ -120,7 +122,9 @@
 
   ws.onopen = () => {
     console.log('WebSocket connection opened.');
-    document.getElementById('status_label').innerText = 'Online';
+    const status_label = document.getElementById('status_label');
+    status_label.innerText = 'Online';
+    status_label.style.color = 'green';
     startHeartbeat();
   };
 
@@ -151,7 +155,9 @@
   };
 
   ws.onerror = (err) => {
-    document.getElementById('status_label').innerText = 'Connect error';
+    const status_label = document.getElementById('status_label');
+    status_label.innerText = 'Connect error';
+    status_label.style.color = 'red';
     console.error('WebSocket error:', err);
   };
 
