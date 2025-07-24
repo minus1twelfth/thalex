@@ -33,7 +33,11 @@
 <br/>
 <label> Min Delta:<input type="text" size="5" id="min_delta_input"></label>
 <label> | Max Delta:<input type="text" size="5" id="max_delta_input"></label>
-
+<br/>
+<label> Width bid call:<input type="text" size="5" id="width_bid_call_input"></label>
+<label> | Width ask call:<input type="text" size="5" id="width_ask_call_input"></label>
+<label> | Width bid put:<input type="text" size="5" id="width_bid_put_input"></label>
+<label> | Width ask put:<input type="text" size="5" id="width_ask_put_input"></label>
 
 <table id="data-table">
   <thead>
@@ -82,6 +86,38 @@
     ws.send(message);
   });
 
+  document.getElementById('width_bid_call_input').addEventListener('change', function (event) {
+    const message = JSON.stringify({
+      type: 'width_bid_call',
+      value: event.target.value
+    });
+    ws.send(message);
+  });
+
+  document.getElementById('width_ask_call_input').addEventListener('change', function (event) {
+    const message = JSON.stringify({
+      type: 'width_ask_call',
+      value: event.target.value
+    });
+    ws.send(message);
+  });
+
+  document.getElementById('width_bid_put_input').addEventListener('change', function (event) {
+    const message = JSON.stringify({
+      type: 'width_bid_put',
+      value: event.target.value
+    });
+    ws.send(message);
+  });
+
+  document.getElementById('width_ask_put_input').addEventListener('change', function (event) {
+    const message = JSON.stringify({
+      type: 'width_ask_put',
+      value: event.target.value
+    });
+    ws.send(message);
+  });
+
   ws.onopen = () => {
     console.log('WebSocket connection opened.');
     document.getElementById('status_label').innerText = 'Online';
@@ -103,6 +139,14 @@
       document.getElementById('max_delta_input').value = data.max_delta;
     } else if ('max_dte' in data) {
       document.getElementById('max_dte_input').value = data.max_dte;
+    } else if ('width_bid_call' in data) {
+      document.getElementById('width_bid_call_input').value = data.width_bid_call;
+    } else if ('width_ask_call' in data) {
+      document.getElementById('width_ask_call_input').value = data.width_ask_call;
+    } else if ('width_bid_put' in data) {
+      document.getElementById('width_bid_put_input').value = data.width_bid_put;
+    } else if ('width_ask_put' in data) {
+      document.getElementById('width_ask_put_input').value = data.width_ask_put;
     }
   };
 

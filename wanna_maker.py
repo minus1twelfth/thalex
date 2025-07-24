@@ -375,6 +375,10 @@ class Quoter:
     async def websocket_handler(self, websocket):
         await websocket.send(json.dumps({'min_delta': self.cfg.min_delta}))
         await websocket.send(json.dumps({'max_delta': self.cfg.max_delta}))
+        await websocket.send(json.dumps({'width_bid_call': self.cfg.width_bid_call}))
+        await websocket.send(json.dumps({'width_ask_call': self.cfg.width_ask_call}))
+        await websocket.send(json.dumps({'width_bid_put': self.cfg.width_bid_put}))
+        await websocket.send(json.dumps({'width_ask_put': self.cfg.width_ask_put}))
         try:
             while True:
                 await websocket.send(json.dumps({'table_data': self.get_instrument_table_data()}))
@@ -390,6 +394,18 @@ class Quoter:
                             self.cfg.persist()
                         case 'max_delta':
                             self.cfg.max_delta = float(message['value'])
+                            self.cfg.persist()
+                        case 'width_bid_call':
+                            self.cfg.width_bid_call = int(message['value'])
+                            self.cfg.persist()
+                        case 'width_ask_call':
+                            self.cfg.width_ask_call = int(message['value'])
+                            self.cfg.persist()
+                        case 'width_bid_put':
+                            self.cfg.width_bid_put = int(message['value'])
+                            self.cfg.persist()
+                        case 'width_ask_put':
+                            self.cfg.width_ask_put = int(message['value'])
                             self.cfg.persist()
         except websockets.exceptions.ConnectionClosed:
             logging.info('Client connection closed')
