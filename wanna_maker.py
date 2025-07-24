@@ -81,6 +81,17 @@ def put_discount(fwd: float, k: float, sigma: float, maturity: float) -> float:
         return 0.0
 
 
+def width_discount(width_usd: float, delta: float):
+    delta = abs(delta)
+    if delta > 0.6:
+        return width_usd
+    elif delta < 0.1:
+        return width_usd * 0.1
+    else:
+        # linear increase from delta 0.1 to 0.6
+        return 0.1*width_usd + (delta-0.1) * width_usd*0.9 / 0.5
+
+
 def iv_offset_for_delta(vol_offsets: list[float], delta: float):
     assert delta > 0
     if delta <= 0.5:
@@ -124,26 +135,30 @@ class QuoteMeta:
         if self.instrument.type == InstrumentType.CALL:
             if pp < MAX_POS:
                 iv = self.vols[0] + iv_offset_for_delta(vol_offsets, self.delta)
-                p = round_to_tick(call_discount(self.fwd, self.instrument.k, iv, tte)) - cfg.width_bid_call
+                width = width_discount(cfg.width_bid_call, self.delta)
+                p = round_to_tick(call_discount(self.fwd, self.instrument.k, iv, tte) - width)
                 self.theo.b = th.SideQuote(p, cfg.quote_size if p > 10 else 0)
             else:
                 self.theo.b = th.SideQuote(0, 0)
             if pp > MIN_POS:
                 iv = self.vols[1] + iv_offset_for_delta(vol_offsets, self.delta)
-                p = round_to_tick(call_discount(self.fwd, self.instrument.k, iv, tte)) + cfg.width_ask_call
+                width = width_discount(cfg.width_ask_call, self.delta)
+                p = round_to_tick(call_discount(self.fwd, self.instrument.k, iv, tte) + width)
                 self.theo.a = th.SideQuote(p, cfg.quote_size if p > 10 else 0)
             else:
                 self.theo.a = th.SideQuote(0, 0)
         elif self.instrument.type == InstrumentType.PUT:
             if pp < MAX_POS:
                 iv = self.vols[0] + iv_offset_for_delta(vol_offsets, 1 - self.delta)
-                p = round_to_tick(put_discount(self.fwd, self.instrument.k, iv, tte)) - cfg.width_bid_put
+                width = width_discount(cfg.width_bid_put, self.delta)
+                p = round_to_tick(put_discount(self.fwd, self.instrument.k, iv, tte) - width)
                 self.theo.b = th.SideQuote(p, cfg.quote_size if p > 10 else 0)
             else:
                 self.theo.b = th.SideQuote(0, 0)
             if pp > MIN_POS:
                 iv = self.vols[1] + iv_offset_for_delta(vol_offsets, 1 - self.delta)
-                p = round_to_tick(put_discount(self.fwd, self.instrument.k, iv, tte)) + cfg.width_ask_put
+                width = width_discount(cfg.width_ask_put, self.delta)
+                p = round_to_tick(put_discount(self.fwd, self.instrument.k, iv, tte) + width)
                 self.theo.a = th.SideQuote(p, cfg.quote_size if p > 10 else 0)
             else:
                 self.theo.a = th.SideQuote(0, 0)
@@ -396,16 +411,16 @@ class Quoter:
                             self.cfg.max_delta = float(message['value'])
                             self.cfg.persist()
                         case 'width_bid_call':
-                            self.cfg.width_bid_call = int(message['value'])
+                            self.cfg.width_bid_call = float(message['value'])
                             self.cfg.persist()
                         case 'width_ask_call':
-                            self.cfg.width_ask_call = int(message['value'])
+                            self.cfg.width_ask_call = float(message['value'])
                             self.cfg.persist()
                         case 'width_bid_put':
-                            self.cfg.width_bid_put = int(message['value'])
+                            self.cfg.width_bid_put = float(message['value'])
                             self.cfg.persist()
                         case 'width_ask_put':
-                            self.cfg.width_ask_put = int(message['value'])
+                            self.cfg.width_ask_put = float(message['value'])
                             self.cfg.persist()
         except websockets.exceptions.ConnectionClosed:
             logging.info('Client connection closed')
