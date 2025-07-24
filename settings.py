@@ -1,4 +1,8 @@
 import dataclasses
+import json
+import logging
+from dataclasses import asdict
+
 
 @dataclasses.dataclass
 class Settings:
@@ -13,6 +17,21 @@ class Settings:
 	width_bid_put: float
 	width_ask_put: float
 	vol_offsets: dict[str, list[float]]
+
+	def persist(self):
+		with open('settings.json', 'w') as file:
+			json.dump(asdict(self), file)
+
+	@staticmethod
+	def load():
+		try:
+			with open('settings.json', 'r') as file:
+				data = json.load(file)
+				return Settings(**data)
+		except Exception as e:
+			logging.warning(f'Failed to load settings because {repr(e)}')
+			return default_settings()
+
 
 
 def default_settings() -> Settings:

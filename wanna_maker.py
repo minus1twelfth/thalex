@@ -387,8 +387,10 @@ class Quoter:
                             logging.info(f'set {self._armed}')
                         case 'min_delta':
                             self.cfg.min_delta = float(message['value'])
+                            self.cfg.persist()
                         case 'max_delta':
                             self.cfg.max_delta = float(message['value'])
+                            self.cfg.persist()
         except websockets.exceptions.ConnectionClosed:
             logging.info('Client connection closed')
             
@@ -408,7 +410,7 @@ async def main():
         format="%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s",
     )
     run = True  # We set this to false when we want to stop
-    cfg: Settings = default_settings()
+    cfg = Settings.load()
     while run:
         iv_store = {}
         d = Deribit(iv_store, DERIBIT_URL, UNDERLYING)
