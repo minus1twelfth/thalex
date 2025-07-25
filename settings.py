@@ -20,7 +20,7 @@ class Settings:
 
 	def persist(self):
 		with open('settings.json', 'w') as file:
-			json.dump(asdict(self), file)
+			json.dump(asdict(self), file, indent=2)
 
 	@staticmethod
 	def load():
