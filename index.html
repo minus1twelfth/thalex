@@ -270,6 +270,20 @@
               ws.send(message);
             });
             td.appendChild(checkbox);
+          } else if (key.startsWith("vol offset")) {
+            const input = document.createElement("input");
+            input.size = 5;
+            input.value = row[key];
+            input.addEventListener('change', function (event) {
+              const message = JSON.stringify({
+                type: 'vol_offset',
+                exp: row[keys[0]],
+                range: key,
+                value: event.target.value
+              });
+              ws.send(message);
+            });
+            td.appendChild(input);
           } else {
             td.textContent = row[key];
           }

@@ -42,6 +42,10 @@ class Settings:
 	def expiry_is_enabled(self, expiry: str):
 		return expiry in self.enabled_expiries
 
+	def set_vol_offset(self, expiry: str, idx: int, value: float):
+		offsets = self.vol_offsets.get(expiry, [0, 0, 0])
+		offsets[idx] = value
+		self.vol_offsets[expiry] = offsets
 
 def default_settings() -> Settings:
 	return Settings(

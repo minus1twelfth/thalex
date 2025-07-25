@@ -21,6 +21,10 @@ BATCH = 100  # Mass Quote batch size
 DISCO_SECS = 10  # cancel on disconnect seconds
 MIN_POS = -0.1
 MAX_POS = 0.1
+VOL_OFFSET_D25 = 'vol offset d25'
+VOL_OFFSET_D50 = 'vol offset d50'
+VOL_OFFSET_D75 = 'vol offset d75'
+VOL_OFFSETS = [VOL_OFFSET_D25, VOL_OFFSET_D50, VOL_OFFSET_D75]
 
 AMEND_THRESHOLD = 15  # $USD
 
@@ -384,8 +388,13 @@ class Quoter:
         expiries = list(self._instruments.keys())
         expiries.sort()
         for exp in expiries:
-            enabled = str(exp) in self.cfg.enabled_expiries
-            result.append({'expiry': str(exp), 'enabled': enabled})
+            exp = str(exp)
+            enabled = exp in self.cfg.enabled_expiries
+            exp_object = {'expiry': exp, 'enabled': enabled}
+            vol_offsets = self.cfg.vol_offsets.get(exp, [0, 0, 0])
+            for key, value in zip(VOL_OFFSETS, vol_offsets):
+                exp_object[key] = value
+            result.append(exp_object)
         return result
 
     def count_open_orders(self):
@@ -453,6 +462,13 @@ class Quoter:
                             self.config_updated()
                             if enabled:
                                 self._armed = False # prevent blind quoting
+                        case 'vol_offset':
+                            value = float(message['value'])
+                            idx = VOL_OFFSETS.index(message['range'])
+                            exp = message['exp']
+                            self.cfg.set_vol_offset(expiry=exp, idx=idx, value=value)
+                            self.config_updated()
+
         except websockets.exceptions.ConnectionClosed:
             logging.info('Client connection closed')
             
