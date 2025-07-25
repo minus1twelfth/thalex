@@ -416,6 +416,8 @@ class Quoter:
         await websocket.send(json.dumps({'width_ask_call': self.cfg.width_ask_call}))
         await websocket.send(json.dumps({'width_bid_put': self.cfg.width_bid_put}))
         await websocket.send(json.dumps({'width_ask_put': self.cfg.width_ask_put}))
+        await websocket.send(json.dumps({'mmp_size': self.cfg.mmp_size}))
+        await websocket.send(json.dumps({'label': self.cfg.label}))
         await websocket.send(json.dumps({'expiry_data': self.get_expiry_table_data()}))
 
     def config_updated(self):
@@ -456,6 +458,14 @@ class Quoter:
                         case 'width_ask_put':
                             self.cfg.width_ask_put = float(message['value'])
                             self.config_updated()
+                        case 'mmp_size':
+                            self.cfg.mmp_size = float(message['value'])
+                            self.config_updated()
+                            self._armed = False
+                        case 'label':
+                            self.cfg.label = message['value']
+                            self.config_updated()
+                            self._armed = False
                         case 'expiry_enabled':
                             enabled = message['value']
                             self.cfg.enable_expiry(expiry=message['exp'], enabled=enabled)

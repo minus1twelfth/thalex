@@ -51,6 +51,9 @@
     <br/>
     <label> Width bid put:<input type="text" size="5" id="width_bid_put_input"></label>
     <label> | Width ask put:<input type="text" size="5" id="width_ask_put_input"></label>
+    <br/>
+    <label> MMP size:<input type="text" size="5" id="mmp_size_input"></label>
+    <label> | Quote label:<input type="text" size="25" id="label_input"></label>
   </div>
   <div class="column">
     <table id="expiry-data-table">
@@ -143,6 +146,22 @@
     ws.send(message);
   });
 
+  document.getElementById('mmp_size_input').addEventListener('change', function (event) {
+    const message = JSON.stringify({
+      type: 'mmp_size',
+      value: event.target.value
+    });
+    ws.send(message);
+  });
+
+  document.getElementById('label_input').addEventListener('change', function (event) {
+    const message = JSON.stringify({
+      type: 'label',
+      value: event.target.value
+    });
+    ws.send(message);
+  });
+
   ws.onopen = () => {
     console.log('WebSocket connection opened.');
     const status_label = document.getElementById('status_label');
@@ -176,6 +195,10 @@
       document.getElementById('width_bid_put_input').value = data.width_bid_put;
     } else if ('width_ask_put' in data) {
       document.getElementById('width_ask_put_input').value = data.width_ask_put;
+    } else if ('mmp_size' in data) {
+      document.getElementById('mmp_size_input').value = data.mmp_size;
+    } else if ('label' in data) {
+      document.getElementById('label_input').value = data.label;
     }
   };
 
