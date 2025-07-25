@@ -346,6 +346,7 @@ class Quoter:
                 row = {}
                 call = exp_instr[strike][InstrumentType.CALL]
                 quote = self._quotes.get(call)
+                row['C pos'] = format_num(self.portfolio.get(call), 1)
                 row['C vol bid'] = f'{format_num(quote and quote.vols[0] and quote.vols[0] * 100, 1)}%'
                 if quote and quote.book[0]:
                     row['C bid.green'] = repr(quote.book[0])
@@ -379,6 +380,7 @@ class Quoter:
                 else:
                     row['P ask'] = '-'
                 row['P vol ask'] = f'{format_num(quote and quote.vols[1] and quote.vols[1] * 100, 1)}%'
+                row['P pos'] = format_num(self.portfolio.get(put), 1)
                 result.append(row)
             result.append({})
         return result
