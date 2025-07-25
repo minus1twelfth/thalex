@@ -32,6 +32,15 @@ class Settings:
 			logging.warning(f'Failed to load settings because {repr(e)}')
 			return default_settings()
 
+	def enable_expiry(self, expiry: str, enabled: bool):
+		if enabled:
+			if expiry not in self.enabled_expiries:
+				self.enabled_expiries.append(expiry)
+		else:
+			self.enabled_expiries.remove(expiry)
+
+	def expiry_is_enabled(self, expiry: str):
+		return expiry in self.enabled_expiries
 
 
 def default_settings() -> Settings:

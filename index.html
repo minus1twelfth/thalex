@@ -4,6 +4,16 @@
   <meta charset="UTF-8">
   <title>WebSocket JSON Table</title>
   <style>
+    .container {
+      display: flex;
+      gap: 20px; /* space between columns */
+    }
+
+    .column {
+      flex: 1; /* both columns take equal space */
+      padding: 10px;
+      border: 1px solid #ccc;
+    }
     .table-break {
       background-color: #ccc;
       height: 10px;
@@ -25,19 +35,32 @@
 </head>
 <body>
 
-<label> <input type="checkbox" id="armed_checkbox">Armed</label>
-<label>| Websocket: </label>
-<label id="status_label">Status</label>
-<label>| Open orders: </label>
-<label id="open_orders_label">-</label>
-<br/>
-<label> Min Delta:<input type="text" size="5" id="min_delta_input"></label>
-<label> | Max Delta:<input type="text" size="5" id="max_delta_input"></label>
-<br/>
-<label> Width bid call:<input type="text" size="5" id="width_bid_call_input"></label>
-<label> | Width ask call:<input type="text" size="5" id="width_ask_call_input"></label>
-<label> | Width bid put:<input type="text" size="5" id="width_bid_put_input"></label>
-<label> | Width ask put:<input type="text" size="5" id="width_ask_put_input"></label>
+<div class="container">
+  <div class="column">
+    <label> <input type="checkbox" id="armed_checkbox">Armed</label>
+    <label>| Websocket: </label>
+    <label id="status_label">Status</label>
+    <label>| Open orders: </label>
+    <label id="open_orders_label">-</label>
+    <br/>
+    <label> Min Delta:<input type="text" size="5" id="min_delta_input"></label>
+    <label> | Max Delta:<input type="text" size="5" id="max_delta_input"></label>
+    <br/>
+    <label> Width bid call:<input type="text" size="5" id="width_bid_call_input"></label>
+    <label> | Width ask call:<input type="text" size="5" id="width_ask_call_input"></label>
+    <br/>
+    <label> Width bid put:<input type="text" size="5" id="width_bid_put_input"></label>
+    <label> | Width ask put:<input type="text" size="5" id="width_ask_put_input"></label>
+  </div>
+  <div class="column">
+    <table id="expiry-data-table">
+      <thead>
+        <tr id="expiry-table-header"></tr>
+      </thead>
+      <tbody id="expiry-table-body"></tbody>
+    </table>
+  </div>
+</div>
 
 <table id="data-table">
   <thead>
@@ -59,7 +82,7 @@
         status_label.innerText = 'Timeout';
         status_label.style.color = 'red';
         console.warn('Connection timed out. Closing socket.');
-        socket.close(); // or trigger reconnect logic here
+        ws.close(); // or trigger reconnect logic here
     }, 3000);
   };
 
@@ -133,6 +156,8 @@
     const data = JSON.parse(event.data);
     if ('table_data' in data) {
       updateTable(data.table_data);
+    } else if ('expiry_data' in data) {
+      createExpiryTable(data.expiry_data);
     } else if ('armed' in data) {
       document.getElementById('armed_checkbox').checked = data.armed;
     } else if ('open_orders' in data) {
@@ -207,6 +232,53 @@
     }
     tableBody.appendChild(tr);
   }
+
+   function createExpiryTable(data) {
+      const headerRow = document.getElementById("expiry-table-header");
+      const tableBody = document.getElementById("expiry-table-body");
+
+      // Clear previous contents
+      headerRow.innerHTML = "";
+      tableBody.innerHTML = "";
+
+      if (data.length === 0) return;
+
+      // Build header
+      const keys = Object.keys(data[0]);
+      keys.forEach(key => {
+        const th = document.createElement("th");
+        th.textContent = key;
+        headerRow.appendChild(th);
+      });
+
+      // Build rows
+      data.forEach(row => {
+        const tr = document.createElement("tr");
+
+        keys.forEach(key => {
+          const td = document.createElement("td");
+          if (key === 'enabled') {
+            const checkbox = document.createElement("input");
+            checkbox.type = 'checkbox';
+            checkbox.checked = row[key];
+            checkbox.addEventListener("click", function (event) {
+              const message = JSON.stringify({
+                type: 'expiry_enabled',
+                exp: row[keys[0]],
+                value: event.target.checked
+              });
+              ws.send(message);
+            });
+            td.appendChild(checkbox);
+          } else {
+            td.textContent = row[key];
+          }
+          tr.appendChild(td);
+        });
+
+        tableBody.appendChild(tr);
+      });
+    }
 </script>
 
 </body>

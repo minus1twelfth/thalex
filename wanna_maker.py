@@ -4,6 +4,7 @@ import logging
 import socket
 import math
 import time
+
 from aiohttp import web
 
 import websockets
@@ -16,7 +17,6 @@ from common import *
 from deribit import Deribit
 from settings import Settings
 
-MAX_DTE = 7
 BATCH = 100  # Mass Quote batch size
 DISCO_SECS = 10  # cancel on disconnect seconds
 MIN_POS = -0.1
@@ -123,6 +123,10 @@ class QuoteMeta:
             return False
         return quote_needs_update(self.book[0], self.theo.b) or quote_needs_update(self.book[1], self.theo.a)
 
+    def clear_theo(self):
+        self.theo.b = th.SideQuote(0, 0)
+        self.theo.a = th.SideQuote(0, 0)
+
     def update_theo(self, index: float, now: float, pp: float, cfg: Settings):
         logging.debug(f"{index=} {self.instrument.name} {self.delta=} {self.fwd=} {self.vols=}")
         if self.delta is None or self.fwd is None or not cfg.min_delta < abs(self.delta) < cfg.max_delta:
@@ -174,6 +178,7 @@ class Quoter:
         self._send_queue: list[QuoteMeta] = []
         self._index: Optional[float] = None
         self._armed: bool = False
+        self._should_send_config: bool = True
         self.portfolio: dict[str, float] = {}
 
     async def read_task(self):
@@ -259,14 +264,12 @@ class Quoter:
                 await self.thalex.mass_quote(quotes, post_only=True, id=CID_QUOTE, label=self.cfg.label)
 
     def proc_instruments(self, instruments):
-        now = datetime.datetime.now(datetime.UTC).timestamp()
         subs = []
         for i in instruments:
-            expiry = i.get("expiration_timestamp", now + MAX_DTE + 50000)
-            if i["product"] == PRODUCT and i["type"] == "option" and expiry < now + MAX_DTE * 24 * 3600:
+            if i["product"] == PRODUCT and i["type"] == "option":
                 i = Instrument(
                     name=i["instrument_name"],
-                    expiry=Expiry(expiry),
+                    expiry=Expiry(i["expiration_timestamp"]),
                     itype=InstrumentType(i["option_type"]),
                     k=i["strike_price"]
                 )
@@ -285,6 +288,7 @@ class Quoter:
             if iv_chain is None:
                 nothave.add(expiry)
                 continue
+            expiry_is_enabled = self.cfg.expiry_is_enabled(str(expiry))
 
             d_chain = sorted(iv_chain.keys())
             for k, putcall in chain.items():
@@ -313,7 +317,10 @@ class Quoter:
                     if self._index is None:
                         continue
                     pp = self.portfolio.get(q.instrument.name, 0)
-                    q.update_theo(self._index, now, pp, self.cfg)
+                    if expiry_is_enabled:
+                        q.update_theo(self._index, now, pp, self.cfg)
+                    else:
+                        q.clear_theo()
                     if q.should_send() and self._armed:
                         q.queued = True
                         self._send_queue.append(q)
@@ -326,6 +333,8 @@ class Quoter:
         expiries.sort()
 
         for exp in expiries:
+            if not self.cfg.expiry_is_enabled(str(exp)):
+                continue
             exp_instr = self._instruments[exp]
             strikes = list(exp_instr.keys())
             strikes.sort()
@@ -370,6 +379,15 @@ class Quoter:
             result.append({})
         return result
 
+    def get_expiry_table_data(self):
+        result = []
+        expiries = list(self._instruments.keys())
+        expiries.sort()
+        for exp in expiries:
+            enabled = str(exp) in self.cfg.enabled_expiries
+            result.append({'expiry': str(exp), 'enabled': enabled})
+        return result
+
     def count_open_orders(self):
         open_orders = 0
         for quote in self._quotes.values():
@@ -382,41 +400,59 @@ class Quoter:
         except asyncio.TimeoutError:
             return None
 
-    async def websocket_handler(self, websocket):
+    async def send_config(self, websocket):
         await websocket.send(json.dumps({'min_delta': self.cfg.min_delta}))
         await websocket.send(json.dumps({'max_delta': self.cfg.max_delta}))
         await websocket.send(json.dumps({'width_bid_call': self.cfg.width_bid_call}))
         await websocket.send(json.dumps({'width_ask_call': self.cfg.width_ask_call}))
         await websocket.send(json.dumps({'width_bid_put': self.cfg.width_bid_put}))
         await websocket.send(json.dumps({'width_ask_put': self.cfg.width_ask_put}))
+        await websocket.send(json.dumps({'expiry_data': self.get_expiry_table_data()}))
+
+    def config_updated(self):
+        self.cfg.persist()
+        self._should_send_config = True
+
+    async def websocket_handler(self, websocket):
+        await self.send_config(websocket)
         try:
             while True:
+                if self._should_send_config:
+                    await self.send_config(websocket)
+                    self._should_send_config = False
                 await websocket.send(json.dumps({'table_data': self.get_instrument_table_data()}))
                 await websocket.send(json.dumps({'armed': self._armed}))
                 await websocket.send(json.dumps({'open_orders': self.count_open_orders()}))
                 if message := await self.try_read_ws_message(websocket):
+                    logging.info(f'{message=}')
                     match message.get('type'):
                         case 'armed_checkbox':
                             self._armed = message['status']
                             logging.info(f'set {self._armed}')
                         case 'min_delta':
                             self.cfg.min_delta = float(message['value'])
-                            self.cfg.persist()
+                            self.config_updated()
                         case 'max_delta':
                             self.cfg.max_delta = float(message['value'])
-                            self.cfg.persist()
+                            self.config_updated()
                         case 'width_bid_call':
                             self.cfg.width_bid_call = float(message['value'])
-                            self.cfg.persist()
+                            self.config_updated()
                         case 'width_ask_call':
                             self.cfg.width_ask_call = float(message['value'])
-                            self.cfg.persist()
+                            self.config_updated()
                         case 'width_bid_put':
                             self.cfg.width_bid_put = float(message['value'])
-                            self.cfg.persist()
+                            self.config_updated()
                         case 'width_ask_put':
                             self.cfg.width_ask_put = float(message['value'])
-                            self.cfg.persist()
+                            self.config_updated()
+                        case 'expiry_enabled':
+                            enabled = message['value']
+                            self.cfg.enable_expiry(expiry=message['exp'], enabled=enabled)
+                            self.config_updated()
+                            if enabled:
+                                self._armed = False # prevent blind quoting
         except websockets.exceptions.ConnectionClosed:
             logging.info('Client connection closed')
             
