@@ -53,6 +53,8 @@
     <label> | Width ask put:<input type="text" size="5" id="width_ask_put_input"></label>
     <br/>
     <label> MMP size:<input type="text" size="5" id="mmp_size_input"></label>
+    <label> Quote size:<input type="text" size="5" id="quote_size_input"></label>
+    <br/>
     <label> | Quote label:<input type="text" size="25" id="label_input"></label>
   </div>
   <div class="column">
@@ -154,6 +156,14 @@
     ws.send(message);
   });
 
+  document.getElementById('quote_size_input').addEventListener('change', function (event) {
+    const message = JSON.stringify({
+      type: 'quote_size',
+      value: event.target.value
+    });
+    ws.send(message);
+  });
+
   document.getElementById('label_input').addEventListener('change', function (event) {
     const message = JSON.stringify({
       type: 'label',
@@ -197,6 +207,8 @@
       document.getElementById('width_ask_put_input').value = data.width_ask_put;
     } else if ('mmp_size' in data) {
       document.getElementById('mmp_size_input').value = data.mmp_size;
+    } else if ('quote_size' in data) {
+      document.getElementById('quote_size_input').value = data.quote_size;
     } else if ('label' in data) {
       document.getElementById('label_input').value = data.label;
     }
