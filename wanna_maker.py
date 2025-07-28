@@ -372,7 +372,7 @@ class Quoter:
                     iv_c = '.red'
                 else:
                     iv_c = ''
-                row[f'iv off{iv_c}'] = f'{format_num(quote and quote.iv_off, 2)}%'
+                row[f'iv off{iv_c}'] = f'{format_num(quote and quote.iv_off * 100, 1)}%'
                 row['C pos'] = format_num(self.portfolio.get(call), 1)
                 row['C vol bid'] = f'{format_num(quote and quote.vols[0] and quote.vols[0] * 100, 1)}%'
                 if quote and quote.book[0]:
