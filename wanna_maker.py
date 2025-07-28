@@ -118,6 +118,7 @@ class QuoteMeta:
         self.fwd: Optional[float] = None
         self.book: list[Optional[th.SideQuote]] = [None, None]  # bid, ask
         self.vols: list[Optional[float]] = [None, None]  # bid ask
+        self.iv_off: float = 0
         self.in_flight: bool = False
         self.queued: bool = False
         self.instrument: Instrument = instrument
@@ -140,30 +141,32 @@ class QuoteMeta:
         tte = (self.instrument.expiry.date.timestamp() - now) / (3600 * 24 * 365.25)
         vol_offsets = cfg.vol_offsets.get(str(self.instrument.expiry), [0, 0, 0])
         if self.instrument.type == InstrumentType.CALL:
+            self.iv_off = iv_offset_for_delta(vol_offsets, self.delta)
             if pp < MAX_POS:
-                iv = self.vols[0] + iv_offset_for_delta(vol_offsets, self.delta)
+                iv = self.vols[0] + self.iv_off
                 width = width_discount(cfg.width_bid_call, self.delta)
                 p = round_to_tick(call_discount(self.fwd, self.instrument.k, iv, tte) - width)
                 self.theo.b = th.SideQuote(p, cfg.quote_size if p > 10 else 0)
             else:
                 self.theo.b = th.SideQuote(0, 0)
             if pp > MIN_POS:
-                iv = self.vols[1] + iv_offset_for_delta(vol_offsets, self.delta)
+                iv = self.vols[1] + self.iv_off
                 width = width_discount(cfg.width_ask_call, self.delta)
                 p = round_to_tick(call_discount(self.fwd, self.instrument.k, iv, tte) + width)
                 self.theo.a = th.SideQuote(p, cfg.quote_size if p > 10 else 0)
             else:
                 self.theo.a = th.SideQuote(0, 0)
         elif self.instrument.type == InstrumentType.PUT:
+            self.iv_off = iv_offset_for_delta(vol_offsets, 1 - self.delta)
             if pp < MAX_POS:
-                iv = self.vols[0] + iv_offset_for_delta(vol_offsets, 1 - self.delta)
+                iv = self.vols[0] + self.iv_off
                 width = width_discount(cfg.width_bid_put, self.delta)
                 p = round_to_tick(put_discount(self.fwd, self.instrument.k, iv, tte) - width)
                 self.theo.b = th.SideQuote(p, cfg.quote_size if p > 10 else 0)
             else:
                 self.theo.b = th.SideQuote(0, 0)
             if pp > MIN_POS:
-                iv = self.vols[1] + iv_offset_for_delta(vol_offsets, 1 - self.delta)
+                iv = self.vols[1] + self.iv_off
                 width = width_discount(cfg.width_ask_put, self.delta)
                 p = round_to_tick(put_discount(self.fwd, self.instrument.k, iv, tte) + width)
                 self.theo.a = th.SideQuote(p, cfg.quote_size if p > 10 else 0)
@@ -343,6 +346,7 @@ class Quoter:
             strikes = list(exp_instr.keys())
             strikes.sort()
             result.append({
+                'iv off': ' ',
                 'C pos': ' ',
                 'C vol bid': ' ',
                 'C bid': ' ',
@@ -362,6 +366,13 @@ class Quoter:
                 row = {}
                 call = exp_instr[strike][InstrumentType.CALL]
                 quote = self._quotes.get(call)
+                if quote and quote.iv_off > 0:
+                    iv_c = '.green'
+                elif quote and quote.iv_off < 0:
+                    iv_c = '.red'
+                else:
+                    iv_c = ''
+                row[f'iv off{iv_c}'] = f'{format_num(quote and quote.iv_off, 2)}%'
                 row['C pos'] = format_num(self.portfolio.get(call), 1)
                 row['C vol bid'] = f'{format_num(quote and quote.vols[0] and quote.vols[0] * 100, 1)}%'
                 if quote and quote.book[0]:
@@ -412,7 +423,7 @@ class Quoter:
             exp = str(exp)
             enabled = exp in self.cfg.enabled_expiries
             exp_object = {'expiry': exp, 'enabled': enabled}
-            vol_offsets = self.cfg.vol_offsets.get(exp, [0, 0, 0])
+            vol_offsets = [100 * v for v in self.cfg.vol_offsets.get(exp, [0, 0, 0])]
             for key, value in zip(VOL_OFFSETS, vol_offsets):
                 exp_object[key] = value
             result.append(exp_object)
@@ -498,7 +509,7 @@ class Quoter:
                             if enabled:
                                 self._armed = False # prevent blind quoting
                         case 'vol_offset':
-                            value = float(message['value'])
+                            value = float(message['value']) / 100.0
                             idx = VOL_OFFSETS.index(message['range'])
                             exp = message['exp']
                             self.cfg.set_vol_offset(expiry=exp, idx=idx, value=value)
