@@ -342,6 +342,22 @@ class Quoter:
             exp_instr = self._instruments[exp]
             strikes = list(exp_instr.keys())
             strikes.sort()
+            result.append({
+                'C pos': ' ',
+                'C vol bid': ' ',
+                'C bid': ' ',
+                'C ask': ' ',
+                'C vol ask': ' ',
+                'C delta': ' ',
+                'strike': exp.name,
+                'P delta': ' ',
+                'P vol bid': ' ',
+                'P bid': ' ',
+                'P ask': ' ',
+                'P vol ask': ' ',
+                'P pos': ' ',
+            })
+            atm_lo, atm_hi = neighbours(strikes, self._index)
             for strike in strikes:
                 row = {}
                 call = exp_instr[strike][InstrumentType.CALL]
@@ -353,16 +369,19 @@ class Quoter:
                 elif quote and quote.theo and quote.theo.b and quote.theo.b.a:
                     row['C bid'] = repr(quote.theo.b)
                 else:
-                    row['C bid'] = '-'
+                    row['C bid'] = ' '
                 if quote and quote.book[1]:
                     row['C ask.red'] = repr(quote.book[1])
                 elif quote and quote.theo and quote.theo.a and quote.theo.a.a:
                     row['C ask'] = repr(quote.theo.a)
                 else:
-                    row['C ask'] = '-'
+                    row['C ask'] = ' '
                 row['C vol ask'] = f'{format_num(quote and quote.vols[1] and quote.vols[1] * 100, 1)}%'
                 row['C delta'] = format_num(quote and quote.delta, 2)
-                row['instrument'] = call[:-2]
+                if strike in [atm_lo, atm_hi]:
+                    row['strike.blue'] = strike
+                else:
+                    row['strike'] = strike
                 put = exp_instr[strike][InstrumentType.PUT]
                 quote = self._quotes.get(put)
                 row['P delta'] = format_num(quote and quote.delta, 2)
@@ -372,13 +391,13 @@ class Quoter:
                 elif quote and quote.theo and quote.theo.b and quote.theo.b.a:
                     row['P bid'] = repr(quote.theo.b)
                 else:
-                    row['P bid'] = '-'
+                    row['P bid'] = ' '
                 if quote and quote.book[1]:
                     row['P ask.red'] = repr(quote.book[1])
                 elif quote and quote.theo and quote.theo.a and quote.theo.a.a:
                     row['P ask'] = repr(quote.theo.a)
                 else:
-                    row['P ask'] = '-'
+                    row['P ask'] = ' '
                 row['P vol ask'] = f'{format_num(quote and quote.vols[1] and quote.vols[1] * 100, 1)}%'
                 row['P pos'] = format_num(self.portfolio.get(put), 1)
                 result.append(row)
@@ -494,7 +513,7 @@ class Quoter:
 
 def format_num(num, precision):
     if num is None:
-        return '-'
+        return ' '
     return f'{num:.{precision}f}'
 
 
