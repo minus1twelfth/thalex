@@ -210,6 +210,8 @@ class Quoter:
                 logging.debug(msg)
             elif "notification" in msg:
                 self.proc_notification(msg["channel_name"], msg["notification"])
+            elif cid in [CID_MMP, CID_LOGIN, CID_CANCEL_DISCO]:
+                logging.debug(msg)
             else:
                 logging.warning(f"Unhandled msg: {msg}")
 
@@ -222,12 +224,10 @@ class Quoter:
         if ch.startswith("price_index"):
             self._index = n["price"]
         elif ch == "session.orders":
-            mmp_hit = False
             for o in n:
-                if o.get("delete_reason", "") == "mm_protection" and not mmp_hit:
+                if o.get("delete_reason", "") == "mm_protection" and self._armed:
                     logging.warning("MMP is hit. Disarming.")
                     self._armed = False
-                    mmp_hit = True
                 q = self._quotes[o["instrument_name"]]
                 side = 0 if o["direction"] == "buy" else 1
                 if o["status"] in ["open", "partially_filled"]:
@@ -250,7 +250,7 @@ class Quoter:
             await asyncio.sleep(0.25)
             if not self._armed:
                 if is_quoting:
-                    await self.thalex.cancel_mass_quote()
+                    await self.thalex.cancel_mass_quote(id=CID_MMP)
                     is_quoting = False
                 continue
             elif not is_quoting:
@@ -442,7 +442,7 @@ class Quoter:
                     match message.get('type'):
                         case 'armed_checkbox':
                             self._armed = message['status']
-                            logging.info(f'set {self._armed}')
+                            logging.info(f'{"" if self._armed else "dis"}arming quoter')
                         case 'min_delta':
                             self.cfg.min_delta = float(message['value'])
                             self.config_updated()

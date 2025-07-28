@@ -28,6 +28,9 @@ class Settings:
 			with open('settings.json', 'r') as file:
 				data = json.load(file)
 				return Settings(**data)
+		except FileNotFoundError:
+			logging.info("No settings file found. Creating a new one.")
+			return default_settings()
 		except Exception as e:
 			logging.warning(f'Failed to load settings because {repr(e)}')
 			return default_settings()
