@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import socket
-import math
 import time
 
 from aiohttp import web
@@ -13,6 +12,7 @@ from thalex import SideQuote
 import keys
 import thalex as th
 
+from blackscholes import call_discount, put_discount
 from common import *
 from deribit import Deribit
 from settings import Settings
@@ -56,32 +56,6 @@ def neighbours(chain, tgt_k) -> [float, float]:
             n_up = k
             break
     return n_down, n_up
-
-
-def call_discount(fwd: float, k: float, sigma: float, maturity: float) -> float:
-    voltime = math.sqrt(maturity) * sigma
-    if voltime > 0.0:
-        d1 = math.log(fwd / k) / voltime + 0.5 * voltime
-        norm_d1 = 0.5 + 0.5 * math.erf(d1 / math.sqrt(2))
-        norm_d1_vol = 0.5 + 0.5 * math.erf((d1 - voltime) / math.sqrt(2))
-        return fwd * norm_d1 - k * norm_d1_vol
-    elif fwd > k:
-        return fwd - k
-    else:
-        return 0.0
-
-
-def put_discount(fwd: float, k: float, sigma: float, maturity: float) -> float:
-    voltime = math.sqrt(maturity) * sigma
-    if voltime > 0.0:
-        d1 = math.log(fwd / k) / voltime + 0.5 * voltime
-        norm_d1 = 0.5 + 0.5 * math.erf(-d1 / math.sqrt(2))
-        norm_d1_vol = 0.5 + 0.5 * math.erf((voltime - d1) / math.sqrt(2))
-        return k * norm_d1_vol - fwd * norm_d1
-    elif fwd > k:
-        return k - fwd
-    else:
-        return 0.0
 
 
 def width_discount(width_usd: float, delta: float):
