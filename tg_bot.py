@@ -16,18 +16,20 @@ CID_TICK_END = 500
 class Greeks:
     def __init__(self):
         self.d_btc = 0
+        self.d_btc_cash = 0
         self.d_eth = 0
-        self.d_cash = 0
+        self.d_eth_cash = 0
         self.i_btc = -1
         self.i_eth = -1
 
     def __repr__(self):
-        return (f"Cash Delta: ${self.d_cash:.0f}\nBTC:\n"
+        d_tot_cash = self.d_eth_cash + self.d_btc_cash
+        return (f"Cash Delta: ${d_tot_cash:.0f}\nBTC:\n"
                 f"\tindex: ${self.i_btc:.0f}\n"
-                f"\tdelta: {self.d_btc:.2f}\n"
+                f"\tdelta: {self.d_btc:.2f}    ${self.d_btc_cash:.0f}\n"
                 f"ETH:\n"
                 f"\tindex: ${self.i_eth:.0f}\n"
-                f"\tdelta: {self.d_eth:.2f}")
+                f"\tdelta: {self.d_eth:.2f}    ${self.d_eth_cash:.0f}")
 
 
 async def get_greeks() -> Greeks:
@@ -63,11 +65,11 @@ async def get_greeks() -> Greeks:
                     index = tick["index"]
                     if "BTC" in iname:
                         g.d_btc += pp * d
-                        g.d_cash += pp * d * index
+                        g.d_btc_cash += pp * d * index
                         g.i_btc = index
                     elif "ETH" in iname:
                         g.d_eth += pp * d
-                        g.d_cash += pp * d * index
+                        g.d_eth_cash += pp * d * index
                         g.i_eth = index
                 await thalex.disconnect()
                 return g
@@ -85,7 +87,7 @@ async def get_margin():
             msg = msg["result"]
             bal = msg["margin"]
             req = msg["required_margin"]
-            im = req/bal
+            im = 100 * req/bal
             mm = im * 0.7
             await thalex.disconnect()
             return (f"cash: ${int(msg["cash_collateral"])},\n"
@@ -93,7 +95,7 @@ async def get_margin():
                     f"requirement: ${int(req)},\n"
                     f"upnl: ${int(msg["unrealised_pnl"])},\n"
                     f"rpnl: ${int(msg["session_realised_pnl"])}\n"
-                    f"im: {im:.2f}   mm: {mm:.2f}")
+                    f"im: {im:.0f}%    mm: {mm:.0f}%")
 
 
 async def margin(update: Update, context: ContextTypes.DEFAULT_TYPE):
