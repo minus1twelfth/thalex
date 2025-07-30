@@ -16,7 +16,12 @@ VOL_OFFSETS = [VOL_OFFSET_D25, VOL_OFFSET_D50, VOL_OFFSET_D75]
 
 
 async def handle_http(request):
-    return web.FileResponse('index.html')
+    match request.path:
+        case '/':
+            return web.FileResponse('index.html')
+        case '/script.js':
+            return web.FileResponse('script.js')
+    return web.HTTPNotFound()
 
 
 async def try_read_ws_message(websocket):
@@ -44,6 +49,7 @@ class Gui:
     async def create(quoter: Quoter):
         app = web.Application()
         app.router.add_get('/', handle_http)
+        app.router.add_get('/script.js', handle_http)
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, 'localhost', 8500)
