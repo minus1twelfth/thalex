@@ -13,6 +13,20 @@ CID_CANCEL_DISCO = 6
 CID_MMP = 7
 
 
+def neighbours(chain: list[float], tgt_k: float) -> tuple[float, float]:
+    n_down = None
+    n_up = None
+    for k in chain:
+        if k == tgt_k:
+            return tgt_k, tgt_k
+        elif k < tgt_k:
+            n_down = k
+        else:
+            n_up = k
+            break
+    return n_down, n_up
+
+
 class InstrumentType(enum.Enum):
     PUT = "put"
     CALL = "call"
