@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 
@@ -173,12 +174,12 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     if update and isinstance(update, Update):
         await update.message.reply_text("There was an oupsie processing this one. :(")
 
+async def check_greeks_forever():
+    while True:
+        await asyncio.sleep(3)
+        logging.info('checking greeks')
 
-def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s",
-    )
+async def run_app():
     app = ApplicationBuilder().token(keys.TG_TOKEN).build()
     app.add_handler(CommandHandler(
         "margin",
@@ -196,9 +197,26 @@ def main():
         filters=filters.Chat(chat_id=keys.CHAT_ID)
     ))
     app.add_error_handler(error_handler)
+    forever = asyncio.Future()
+    async with app:
+        await app.start()
+        await app.updater.start_polling()
+        try:
+            await forever
+        except asyncio.CancelledError:
+            pass
+        await app.stop()
 
-    app.run_polling()
 
+async def main():
+    try:
+        await asyncio.gather(run_app(), check_greeks_forever())
+    except asyncio.CancelledError:
+        pass
 
 if __name__ == "__main__":
-    main()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s",
+    )
+    asyncio.run(main())
