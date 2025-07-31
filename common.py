@@ -32,12 +32,17 @@ class InstrumentType(enum.Enum):
     CALL = "call"
     FUT = "future"
     PERP = "perpetual"
-    COMBO = "combo"
+    COMBO = "combination"
+
 
 class Expiry:
-    def __init__(self, ts):
-        self.date = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
-        self.name = self.date.strftime('%d%b%y').upper()
+    def __init__(self, ts: Optional[float], name: Optional[str] = None):
+        if ts is None:
+            self.date = datetime.datetime(3000, 1, 1, tzinfo=datetime.timezone.utc)
+            self.name = "PERP"
+        else:
+            self.date = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
+            self.name = name or self.date.strftime('%d%b%y').upper()
 
     def __lt__(self, other):
         return self.date < other.date
@@ -54,12 +59,23 @@ class Expiry:
     def __repr__(self):
         return str(self)
 
+
 class Instrument:
     def __init__(self, name: str, expiry: Expiry, itype: InstrumentType, k: Optional[float]):
         self.name: str = name
         self.expiry: Expiry = expiry
         self.type: InstrumentType = itype
         self.k: float = k
+
+
+def tlx_instrument(tlx_resp: dict) -> Instrument:
+    itype = tlx_resp["type"]
+    return Instrument(
+        name=tlx_resp["instrument_name"],
+        expiry=Expiry(tlx_resp.get("expiration_timestamp"), tlx_resp.get("expiry_date")),
+        itype=InstrumentType(tlx_resp["option_type"] if itype == "option" else itype),
+        k=tlx_resp.get("strike_price") or 0
+    )
 
 
 class Ticker:
