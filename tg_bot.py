@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import json
 import logging
 
@@ -7,7 +8,8 @@ from telegram.ext import ApplicationBuilder, CommandHandler, filters, ContextTyp
 
 import thalex as th
 import keys
-from common import Expiry, tlx_instrument
+from common import Expiry, tlx_instrument, Instrument, InstrumentType
+import blackscholes as bs
 
 CID_PORTFOLIO = 1
 CID_ACC_SUM = 2
@@ -17,27 +19,55 @@ CID_TICK_END = 500
 
 NETWORK = th.Network.PROD
 
+SECS_IN_YEAR = 3600.0 * 24.0 * 365.25
+
+
+class UnderlyingGreeks:
+    def __init__(self):
+        self.delta = 0
+        self.delta_cash = 0
+        self.gamma = 0
+        self.vega = 0
+        self.theta = 0
+
+    def __repr__(self):
+        return (f"{'Δ':<8} |   {self.delta:.2f}\n"
+                f"{'Δ':<8} | $ {self.delta_cash:.0f}\n"
+                f"{'gamma':<8} |   {self.gamma:.4f}\n"
+                f"{'theta':<8} | $ {self.theta:.0f}\n"
+                f"{'vega':<8} | $ {self.vega:.0f}\n")
+
+    def take(self, pp, tick, i: Instrument, now: datetime.datetime, index):
+        d = tick["delta"]
+        self.delta += pp * d
+        self.delta_cash += pp * d * index
+        if i.type in [InstrumentType.CALL, InstrumentType.PUT]:
+            tte = (i.expiry.date - now).total_seconds() / SECS_IN_YEAR
+            fwd = tick["forward"]
+            sigma = tick["iv"]
+            self.gamma += pp * bs.gamma(fwd, i.k, sigma, tte)
+            self.theta += pp * bs.theta(fwd, i.k, sigma, tte)
+            self.vega += pp * bs.vega(fwd, i.k, sigma, tte)
+            logging.info(f"{i.name} {fwd} {i.k} {sigma} {tte}  t: {pp * bs.theta(fwd, i.k, sigma, tte)}")
+
 
 class Greeks:
-    def __init__(self, portfolio, tickers):
-        self.d_btc = 0
-        self.d_btc_cash = 0
-        self.d_eth = 0
-        self.d_eth_cash = 0
+    def __init__(self, portfolio, tickers, instruments):
+        self.btc = UnderlyingGreeks()
+        self.eth = UnderlyingGreeks()
         self.i_btc = -1
         self.i_eth = -1
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
 
         for iname, pp in portfolio.items():
             tick = tickers[iname]
-            d = tick["delta"]
+            i = instruments[iname]
             index = tick["index"]
             if "BTC" in iname:
-                self.d_btc += pp * d
-                self.d_btc_cash += pp * d * index
+                self.btc.take(pp, tick, i, now, index)
                 self.i_btc = index
             elif "ETH" in iname:
-                self.d_eth += pp * d
-                self.d_eth_cash += pp * d * index
+                self.eth.take(pp, tick, i, now, index)
                 self.i_eth = index
 
     def __repr__(self):
@@ -45,26 +75,29 @@ class Greeks:
             "<pre>"
             f"{'BTC':<8} | $ {self.i_btc:.0f}\n"
             f"{'-'*25}\n"
-            f"{'Δ':<8} |   {self.d_btc:.2f}\n"
-            f"{'Δ':<8} | $ {self.d_btc_cash:.0f}\n"
+            f"{self.btc}"
             f"{' '*25}\n"
             f"{' '*25}\n"
             f"{'ETH':<8} | $ {self.i_eth:.0f}\n"
             f"{'-'*25}\n"
-            f"{'Δ':<8} |   {self.d_eth:.2f}\n"
-            f"{'Δ':<8} | $ {self.d_eth_cash:.0f}\n"
+            f"{self.eth}"
             f"{' '*25}\n"
             f"{' '*25}\n"
-            f"{'Tot $Δ':<8} | $ {self.d_eth_cash + self.d_btc_cash:.0f}\n"
+            f"{'Tot $Δ':<8} | $ {self.eth.delta_cash + self.btc.delta_cash:.0f}\n"
             "</pre>"
         )
 
 
-async def get_portfolio(thalex: th.Thalex):
+async def get_portfolio():
+    thalex = th.Thalex(network=NETWORK)
+    await thalex.connect()
+    await thalex.login(keys.key_ids[NETWORK], keys.private_keys[NETWORK])
     await thalex.portfolio(id=CID_PORTFOLIO)
+    await thalex.instruments(id=CID_INSTRUMENTS)
     tickers = {}
     ticker_calls = {}
     positions = {}
+    instruments = {}
     while True:
         msg = json.loads(await thalex.receive())
         cid = msg.get("id") or -1
@@ -82,35 +115,24 @@ async def get_portfolio(thalex: th.Thalex):
             iname = ticker_calls.pop(cid)
             tickers[iname] = msg["result"]
             if len(ticker_calls) == 0:
-                return positions, tickers
+                await thalex.disconnect()
+                return positions, tickers, instruments
+        elif cid == CID_INSTRUMENTS:
+            instruments = [tlx_instrument(i) for i in msg["result"]]
+            instruments = {i.name: i for i in instruments}
 
 
 async def get_greeks() -> Greeks:
-    thalex = th.Thalex(network=NETWORK)
-    await thalex.connect()
-    await thalex.login(keys.key_ids[NETWORK], keys.private_keys[NETWORK])
-    portfolio, tickers = await get_portfolio(thalex)
-    await thalex.disconnect()
-    return Greeks(portfolio, tickers)
+    portfolio, tickers, instruments = await get_portfolio()
+    return Greeks(portfolio, tickers, instruments)
 
 
 async def get_next() -> (Expiry, dict, Greeks, Greeks):
-    thalex = th.Thalex(network=NETWORK)
-    await thalex.connect()
-    await thalex.login(keys.key_ids[NETWORK], keys.private_keys[NETWORK])
-    portfolio, tickers = await get_portfolio(thalex)
-    await thalex.instruments(id=CID_INSTRUMENTS)
-    while True:
-        msg = json.loads(await thalex.receive())
-        cid = msg.get("id") or -1
-        if cid == CID_INSTRUMENTS:
-            instruments = [tlx_instrument(i) for i in msg["result"]]
-            next_exp = min(instruments, key=lambda i: i.expiry).expiry
-            instruments = {i.name: i for i in instruments}
-            remaining = {iname: pp for iname, pp in portfolio.items() if instruments[iname].expiry != next_exp}
-            expiring = {iname: pp for iname, pp in portfolio.items() if instruments[iname].expiry == next_exp}
-            await thalex.disconnect()
-            return next_exp, expiring, Greeks(expiring, tickers), Greeks(remaining, tickers)
+    portfolio, tickers, instruments = await get_portfolio()
+    next_exp = min(instruments.values(), key=lambda i: i.expiry).expiry
+    remaining = {iname: pp for iname, pp in portfolio.items() if instruments[iname].expiry != next_exp}
+    expiring = {iname: pp for iname, pp in portfolio.items() if instruments[iname].expiry == next_exp}
+    return next_exp, expiring, Greeks(expiring, tickers, instruments), Greeks(remaining, tickers, instruments)
 
 
 async def get_margin():
