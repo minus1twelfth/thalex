@@ -23,13 +23,23 @@ class Greeks:
         self.i_eth = -1
 
     def __repr__(self):
-        d_tot_cash = self.d_eth_cash + self.d_btc_cash
-        return (f"Cash Delta: ${d_tot_cash:.0f}\nBTC:\n"
-                f"\tindex: ${self.i_btc:.0f}\n"
-                f"\tdelta: {self.d_btc:.2f}    ${self.d_btc_cash:.0f}\n"
-                f"ETH:\n"
-                f"\tindex: ${self.i_eth:.0f}\n"
-                f"\tdelta: {self.d_eth:.2f}    ${self.d_eth_cash:.0f}")
+        return (
+            "<pre>"
+            f"{'BTC':<8} | $ {self.i_btc:.0f}\n"
+            f"{'-'*25}\n"
+            f"{'Δ':<8} |   {self.d_btc:.2f}\n"
+            f"{'Δ':<8} | $ {self.d_btc_cash:.0f}\n"
+            f"{' '*25}\n"
+            f"{' '*25}\n"
+            f"{'ETH':<8} | $ {self.i_eth:.0f}\n"
+            f"{'-'*25}\n"
+            f"{'Δ':<8} |   {self.d_eth:.2f}\n"
+            f"{'Δ':<8} | $ {self.d_eth_cash:.0f}\n"
+            f"{' '*25}\n"
+            f"{' '*25}\n"
+            f"{'Tot $Δ':<8} | $ {self.d_eth_cash + self.d_btc_cash:.0f}\n"
+            "</pre>"
+        )
 
 
 async def get_greeks() -> Greeks:
@@ -90,22 +100,27 @@ async def get_margin():
             im = 100 * req/bal
             mm = im * 0.7
             await thalex.disconnect()
-            return (f"cash: ${int(msg["cash_collateral"])},\n"
-                    f"balance: ${int(bal)},\n"
-                    f"requirement: ${int(req)},\n"
-                    f"upnl: ${int(msg["unrealised_pnl"])},\n"
-                    f"rpnl: ${int(msg["session_realised_pnl"])}\n"
-                    f"im: {im:.0f}%    mm: {mm:.0f}%")
+            return (
+                "<pre>"
+                f"{'Cash':<10} | $ {int(msg['cash_collateral'])}\n"
+                f"{'Balance':<10} | $ {int(bal)}\n"
+                f"{'Req':<10} | $ {int(req)}\n"
+                f"{'UPnL':<10} | $ {int(msg['unrealised_pnl'])}\n"
+                f"{'RPnL':<10} | $ {int(msg['session_realised_pnl'])}\n"
+                f"{'IM':<10} | % {im:.0f}\n"
+                f"{'MM':<10} | % {mm:.0f}\n"
+                "</pre>"
+            )
 
 
 async def margin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     m = await get_margin()
-    await update.message.reply_text(m)
+    await update.message.reply_text(m, parse_mode='HTML')
 
 
 async def greeks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     g = await get_greeks()
-    await update.message.reply_text(f"{g}")
+    await update.message.reply_text(f"{g}", parse_mode='HTML')
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
