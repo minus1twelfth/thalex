@@ -159,13 +159,13 @@ async def get_margin():
 
 async def margin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     m = await get_margin()
-    await update.message.reply_text(m, parse_mode='HTML')
+    await context.bot.send_message(keys.CHAT_ID, m, parse_mode='HTML')
 
 
 async def greeks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     portfolio, tickers, instruments = await get_portfolio()
     g = Greeks(portfolio, tickers, instruments)
-    await update.message.reply_text(f"{g}", parse_mode='HTML')
+    await context.bot.send_message(keys.CHAT_ID, f"{g}", parse_mode='HTML')
 
 
 async def scenarios(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -176,7 +176,7 @@ async def scenarios(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Choose an underlying", reply_markup=reply_markup)
+    await context.bot.send_message(keys.CHAT_ID, "Choose an underlying", reply_markup=reply_markup)
 
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -224,7 +224,7 @@ async def h_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "ETH" in iname:
             exp_pos_str += f"{iname:<20} | {pp}\n"
     exp_pos_str += "</pre>"
-    await update.message.reply_text(f"The next expiry on <b>{next_exp}</b> "
+    await context.bot.send_message(keys.CHAT_ID, f"The next expiry on <b>{next_exp}</b> "
                                     f"will see the following positions and greeks expiring:\n"
                                     f"{exp_pos_str}\n"
                                     f"{e_greek}\n\n\n"
