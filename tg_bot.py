@@ -5,8 +5,8 @@ import json
 import logging
 import traceback
 
-from telegram import Update, BotCommand
-from telegram.ext import ApplicationBuilder, CommandHandler, filters, ContextTypes
+from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, filters, ContextTypes, CallbackQueryHandler
 
 import thalex as th
 import keys
@@ -23,6 +23,8 @@ NETWORK = th.Network.PROD
 
 SECS_IN_YEAR = 3600.0 * 24.0 * 365.25
 
+SCENARIOS = [(0, 0), (0.02, 0.05), (0.02, -0.05), (-0.02, 0.05), (-0.02, -0.05)]  # (+index, +iv)
+
 
 class UnderlyingGreeks:
     def __init__(self):
@@ -33,24 +35,28 @@ class UnderlyingGreeks:
         self.theta = 0
 
     def __repr__(self):
-        return (f"{'Δ':<8} |   {self.delta:.2f}\n"
-                f"{'Δ':<8} | $ {self.delta_cash:.0f}\n"
-                f"{'gamma':<8} |   {self.gamma:.4f}\n"
-                f"{'theta':<8} | $ {self.theta:.0f}\n"
-                f"{'vega':<8} | $ {self.vega:.0f}\n")
+        return (f"{'Δ':<5} |   {self.delta:.2f}\n"
+                f"{'$Δ':<5} | $ {self.delta_cash:.0f}\n"
+                f"{'Γ':<5} |   {self.gamma:.4f}\n"
+                f"{'Θ':<5} | $ {self.theta:.0f}\n"
+                f"{'ν':<5} | $ {self.vega:.0f}\n")
 
-    def take(self, pp, tick, i: Instrument, now: datetime.datetime, index):
-        d = tick["delta"]
-        self.delta += pp * d
-        self.delta_cash += pp * d * index
+    def take(self, pp, tick, i: Instrument, now: datetime.datetime, index, iv_off=0.0):
         if i.type in [InstrumentType.CALL, InstrumentType.PUT]:
             tte = (i.expiry.date - now).total_seconds() / SECS_IN_YEAR
             fwd = tick["forward"]
-            sigma = tick["iv"]
+            sigma = tick["iv"] + iv_off
+            idelta = bs.call_delta(fwd, i.k, sigma, tte) if i.type == InstrumentType.CALL else bs.put_delta(fwd, i.k, sigma, tte)
+            d = pp * idelta
+            self.delta += d
+            self.delta_cash += pp * d * index
             self.gamma += pp * bs.gamma(fwd, i.k, sigma, tte)
             self.theta += pp * bs.theta(fwd, i.k, sigma, tte)
             self.vega += pp * bs.vega(fwd, i.k, sigma, tte)
             logging.info(f"{i.name} {fwd} {i.k} {sigma} {tte}  t: {pp * bs.theta(fwd, i.k, sigma, tte)}")
+        else:
+            self.delta += pp
+            self.delta_cash += pp * index
 
 
 class Greeks:
@@ -75,17 +81,17 @@ class Greeks:
     def __repr__(self):
         return (
             "<pre>"
-            f"{'BTC':<8} | $ {self.i_btc:.0f}\n"
+            f"{'BTC':<5} | $ {self.i_btc:.0f}\n"
             f"{'-'*25}\n"
             f"{self.btc}"
             f"{' '*25}\n"
             f"{' '*25}\n"
-            f"{'ETH':<8} | $ {self.i_eth:.0f}\n"
+            f"{'ETH':<5} | $ {self.i_eth:.0f}\n"
             f"{'-'*25}\n"
             f"{self.eth}"
             f"{' '*25}\n"
             f"{' '*25}\n"
-            f"{'Tot $Δ':<8} | $ {self.eth.delta_cash + self.btc.delta_cash:.0f}\n"
+            f"{'Σ$Δ':<5} | $ {self.eth.delta_cash + self.btc.delta_cash:.0f}\n"
             "</pre>"
         )
 
@@ -124,19 +130,6 @@ async def get_portfolio():
             instruments = {i.name: i for i in instruments}
 
 
-async def get_greeks() -> Greeks:
-    portfolio, tickers, instruments = await get_portfolio()
-    return Greeks(portfolio, tickers, instruments)
-
-
-async def get_next() -> (Expiry, dict, Greeks, Greeks):
-    portfolio, tickers, instruments = await get_portfolio()
-    next_exp = min([instruments[i] for i in portfolio.keys()], key=lambda i: i.expiry).expiry
-    remaining = {iname: pp for iname, pp in portfolio.items() if instruments[iname].expiry != next_exp}
-    expiring = {iname: pp for iname, pp in portfolio.items() if instruments[iname].expiry == next_exp}
-    return next_exp, expiring, Greeks(expiring, tickers, instruments), Greeks(remaining, tickers, instruments)
-
-
 async def get_margin():
     thalex = th.Thalex(network=NETWORK)
     await thalex.connect()
@@ -170,18 +163,64 @@ async def margin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def greeks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    g = await get_greeks()
+    portfolio, tickers, instruments = await get_portfolio()
+    g = Greeks(portfolio, tickers, instruments)
     await update.message.reply_text(f"{g}", parse_mode='HTML')
 
 
+async def scenarios(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [
+            InlineKeyboardButton("BTC", callback_data="BTCUSD"),
+            InlineKeyboardButton("ETH", callback_data="ETHUSD"),
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Choose an underlying", reply_markup=reply_markup)
+
+
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    if query.data not in ["BTCUSD", "ETHUSD"]:
+        await query.edit_message_text(text=f"I don't know that underlying")
+        return
+    portfolio, tickers, instruments = await get_portfolio()
+    outcomes = {}
+    for s in SCENARIOS:
+        s_greeks = UnderlyingGreeks()
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
+
+        for iname, pp in portfolio.items():
+            tick = tickers[iname]
+            i = instruments[iname]
+            index = tick["index"] * (1+s[0])
+            if instruments[iname].underlying == f"{query.data}":
+                s_greeks.take(pp, tick, i, now, index, iv_off=s[1])
+        outcomes[s] = s_greeks
+
+    msg = ""
+    for s in SCENARIOS:
+        msg += f"<b>{query.data}: {'+' if s[0] > 0 else ''}{s[0] * 100:.0f}%, iv: {s[1] * 100:.0f}%</b>"
+        msg += "<pre>"
+        msg += f"{outcomes[s]}"
+        msg += "</pre>\n\n"
+    await query.edit_message_text(text=msg, parse_mode='HTML')
+
+
 async def h_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    next_exp, exp_pp, e_greek, r_greek = await get_next()
+    portfolio, tickers, instruments = await get_portfolio()
+    next_exp = min([instruments[i] for i in portfolio.keys()], key=lambda i: i.expiry).expiry
+    remaining = {iname: pp for iname, pp in portfolio.items() if instruments[iname].expiry != next_exp}
+    expiring = {iname: pp for iname, pp in portfolio.items() if instruments[iname].expiry == next_exp}
+    e_greek = Greeks(expiring, tickers, instruments)
+    r_greek = Greeks(remaining, tickers, instruments)
     exp_pos_str = "<pre>"
-    for iname, pp in exp_pp.items():
+    for iname, pp in expiring.items():
         if "BTC" in iname:
             exp_pos_str += f"{iname:<20} | {pp}\n"
     exp_pos_str += f"{' '*30}\n"
-    for iname, pp in exp_pp.items():
+    for iname, pp in expiring.items():
         if "ETH" in iname:
             exp_pos_str += f"{iname:<20} | {pp}\n"
     exp_pos_str += "</pre>"
@@ -206,9 +245,10 @@ async def check_greeks_forever():
 
 async def post_init(app):
     commands = [
-        BotCommand("margin", "Report margin use and PNL"),
         BotCommand("greeks", "Report greeks per underlying"),
+        BotCommand("scenarios", "Report greeks in a set of scenarios"),
         BotCommand("next", "Report positions that expire next, and what the greeks will be after"),
+        BotCommand("margin", "Report margin use and PNL"),
     ]
     await app.bot.set_my_commands(commands)
     app.create_task(check_greeks_forever())
@@ -226,10 +266,16 @@ def main():
         filters=filters.Chat(chat_id=keys.CHAT_ID)
     ))
     app.add_handler(CommandHandler(
+        "scenarios",
+        scenarios,
+        filters=filters.Chat(chat_id=keys.CHAT_ID)
+    ))
+    app.add_handler(CommandHandler(
         "next",
         h_next,
         filters=filters.Chat(chat_id=keys.CHAT_ID)
     ))
+    app.add_handler(CallbackQueryHandler(button))
     app.add_error_handler(error_handler)
     app.run_polling()
 

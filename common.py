@@ -61,11 +61,12 @@ class Expiry:
 
 
 class Instrument:
-    def __init__(self, name: str, expiry: Expiry, itype: InstrumentType, k: Optional[float]):
+    def __init__(self, name: str, expiry: Expiry, itype: InstrumentType, k: Optional[float], underlying:str = "unknown"):
         self.name: str = name
         self.expiry: Expiry = expiry
         self.type: InstrumentType = itype
         self.k: float = k
+        self.underlying = underlying
 
 
 def tlx_instrument(tlx_resp: dict) -> Instrument:
@@ -74,7 +75,8 @@ def tlx_instrument(tlx_resp: dict) -> Instrument:
         name=tlx_resp["instrument_name"],
         expiry=Expiry(tlx_resp.get("expiration_timestamp"), tlx_resp.get("expiry_date")),
         itype=InstrumentType(tlx_resp["option_type"] if itype == "option" else itype),
-        k=tlx_resp.get("strike_price") or 0
+        k=tlx_resp.get("strike_price") or 0,
+        underlying=tlx_resp["underlying"]
     )
 
 
