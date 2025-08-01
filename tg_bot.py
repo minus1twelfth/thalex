@@ -129,7 +129,7 @@ async def get_greeks() -> Greeks:
 
 async def get_next() -> (Expiry, dict, Greeks, Greeks):
     portfolio, tickers, instruments = await get_portfolio()
-    next_exp = min(instruments.values(), key=lambda i: i.expiry).expiry
+    next_exp = min([instruments[i] for i in portfolio.keys()], key=lambda i: i.expiry).expiry
     remaining = {iname: pp for iname, pp in portfolio.items() if instruments[iname].expiry != next_exp}
     expiring = {iname: pp for iname, pp in portfolio.items() if instruments[iname].expiry == next_exp}
     return next_exp, expiring, Greeks(expiring, tickers, instruments), Greeks(remaining, tickers, instruments)
@@ -183,8 +183,8 @@ async def h_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "ETH" in iname:
             exp_pos_str += f"{iname:<20} | {pp}\n"
     exp_pos_str += "</pre>"
-    await update.message.reply_text(f"The next expiry is <b>{next_exp}</b>.\n"
-                                    f"It'll see the following positions and greeks expiring:\n"
+    await update.message.reply_text(f"The next expiry on <b>{next_exp}</b> "
+                                    f"will see the following positions and greeks expiring:\n"
                                     f"{exp_pos_str}\n"
                                     f"{e_greek}\n\n\n"
                                     f"After that, greeks will look like:\n"
