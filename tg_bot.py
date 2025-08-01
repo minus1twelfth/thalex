@@ -25,6 +25,18 @@ SECS_IN_YEAR = 3600.0 * 24.0 * 365.25
 
 SCENARIOS = [(0, 0), (0.02, 0.05), (0.02, -0.05), (-0.02, 0.05), (-0.02, -0.05)]  # (+index, +iv)
 
+breached_limits = set()
+
+class AccountSummary:
+    def __init__(self, cash, balance, req, upnl, rpnl, im, mm):
+        self.cash = cash
+        self.balance = balance
+        self.req = req
+        self.upnl = upnl
+        self.rpnl = rpnl
+        self.im = im
+        self.mm = mm
+
 
 class UnderlyingGreeks:
     def __init__(self):
@@ -130,7 +142,7 @@ async def get_portfolio():
             instruments = {i.name: i for i in instruments}
 
 
-async def get_margin():
+async def get_account_summary():
     thalex = th.Thalex(network=NETWORK)
     await thalex.connect()
     await thalex.login(keys.key_ids[NETWORK], keys.private_keys[NETWORK])
@@ -144,22 +156,31 @@ async def get_margin():
             im = 100 * req/bal
             mm = im * 0.7
             await thalex.disconnect()
-            return (
-                "<pre>"
-                f"{'Cash':<10} | $ {int(msg['cash_collateral'])}\n"
-                f"{'Balance':<10} | $ {int(bal)}\n"
-                f"{'Req':<10} | $ {int(req)}\n"
-                f"{'UPnL':<10} | $ {int(msg['unrealised_pnl'])}\n"
-                f"{'RPnL':<10} | $ {int(msg['session_realised_pnl'])}\n"
-                f"{'IM':<10} | % {im:.0f}\n"
-                f"{'MM':<10} | % {mm:.0f}\n"
-                "</pre>"
+            return AccountSummary(
+                cash=int(msg['cash_collateral']),
+                balance=int(bal),
+                req=int(req),
+                upnl=int(msg['unrealised_pnl']),
+                rpnl=int(msg['session_realised_pnl']),
+                im=im,
+                mm=mm
             )
 
 
 async def margin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    m = await get_margin()
-    await context.bot.send_message(keys.CHAT_ID, m, parse_mode='HTML')
+    s = await get_account_summary()
+    msg = (
+        "<pre>"
+        f"{'Cash':<10} | $ {s.cash}\n"
+        f"{'Balance':<10} | $ {s.balance}\n"
+        f"{'Req':<10} | $ {s.req}\n"
+        f"{'UPnL':<10} | $ {s.upnl}\n"
+        f"{'RPnL':<10} | $ {s.rpnl}\n"
+        f"{'IM':<10} | % {s.im:.0f}\n"
+        f"{'MM':<10} | % {s.mm:.0f}\n"
+        "</pre>"
+    )
+    await context.bot.send_message(keys.CHAT_ID, msg, parse_mode='HTML')
 
 
 async def greeks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -238,10 +259,27 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     error_text = f'Unexpected error <pre>{html.escape("".join(error_lines))}</pre>'
     await context.bot.send_message(chat_id=keys.CHAT_ID, text=error_text, parse_mode='HTML')
 
-async def check_greeks_forever():
+async def check_notify_limit(app, value, limit, label):
+    if value > limit:
+        if label not in breached_limits:
+            breached_limits.add(label)
+            text = f'{label} limit breached, value {value:.2f} over limit {limit:.2f}'
+            await app.bot.send_message(chat_id=keys.CHAT_ID, text=text)
+    else:
+        breached_limits.discard(label)
+
+async def check_greeks_forever(app):
     while True:
-        await asyncio.sleep(3)
-        logging.info('checking greeks')
+        portfolio, tickers, instruments = await get_portfolio()
+        g = Greeks(portfolio, tickers, instruments)
+        await check_notify_limit(app, abs(g.btc.delta_cash), 10000, "BTC cash Δ")
+        await check_notify_limit(app, abs(g.eth.delta_cash), 10000, "ETH cash Δ")
+        await check_notify_limit(app, abs(g.eth.delta_cash) + abs(g.btc.delta_cash), 15000, "Total cash Δ")
+        await check_notify_limit(app, abs(g.btc.delta), 0.5, "BTC Δ")
+        await check_notify_limit(app, abs(g.eth.delta), 0.5, "ETH Δ")
+        s = await get_account_summary()
+        await check_notify_limit(app, s.im, 50, "Margin")
+        await asyncio.sleep(60)
 
 async def post_init(app):
     commands = [
@@ -251,7 +289,7 @@ async def post_init(app):
         BotCommand("margin", "Report margin use and PNL"),
     ]
     await app.bot.set_my_commands(commands)
-    app.create_task(check_greeks_forever())
+    app.create_task(check_greeks_forever(app))
 
 def main():
     app = ApplicationBuilder().token(keys.TG_TOKEN).post_init(post_init).build()
