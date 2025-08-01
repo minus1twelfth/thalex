@@ -3,7 +3,7 @@ import datetime
 import json
 import logging
 
-from telegram import Update
+from telegram import Update, BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, filters, ContextTypes
 
 import thalex as th
@@ -219,6 +219,13 @@ async def run_app():
         filters=filters.Chat(chat_id=keys.CHAT_ID)
     ))
     app.add_error_handler(error_handler)
+    commands = [
+        BotCommand("margin", "Report margin use and PNL"),
+        BotCommand("greeks", "Report greeks per underlying"),
+        BotCommand("next", "Report positions that expire next, and what the greeks will be after"),
+    ]
+    await app.bot.set_my_commands(commands)
+
     forever = asyncio.Future()
     async with app:
         await app.start()
