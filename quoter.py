@@ -63,6 +63,7 @@ class QuoteMeta:
         self.in_flight: bool = False
         self.queued: bool = False
         self.instrument: Instrument = instrument
+        self.tob: list[Optional[th.SideQuote]] = [None, None]  # bid, ask
 
     def should_send(self) -> bool:
         if self.in_flight or self.queued:
@@ -219,6 +220,8 @@ class Quoter:
             q = self._quotes[iname]
             q.delta = n["delta"]
             q.fwd = n["forward"]
+            q.tob[0] = n.get("best_bid_price")
+            q.tob[1] = n.get("best_ask_price")
         elif ch == "account.portfolio":
             for pp in n:
                 self._portfolio[pp["instrument_name"]] = pp["position"]
@@ -243,7 +246,7 @@ class Quoter:
                 for el in batch:
                     el.in_flight = True
                     el.queued = False
-                logging.info(f'Sending {len(quotes)} quotes')
+                logging.debug(f'Sending {len(quotes)} quotes')
                 await self.thalex.mass_quote(quotes, post_only=True, id=CID_QUOTE, label=self._cfg.label)
 
     def proc_instruments(self, instruments):

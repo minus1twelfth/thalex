@@ -162,6 +162,9 @@ function addRowToTable(obj) {
     if (tableHeader.children.length === 0) {
         for (let key in obj) {
             const th = document.createElement('th');
+            if (key.startsWith("C ") || key.startsWith("P ")) {
+              key = key.slice(2);
+            }
             th.textContent = key;
             tableHeader.appendChild(th);
         }

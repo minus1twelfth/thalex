@@ -14,7 +14,7 @@ from quoter import Quoter
 from settings import Settings
 
 DERIBIT_URL = "wss://www.deribit.com/ws/api/v2"
-NETWORK = th.Network.DEV
+NETWORK = th.Network.TEST
 UNDERLYING = "BTC"
 PRODUCT = "OBTCUSD"
 assert UNDERLYING in PRODUCT

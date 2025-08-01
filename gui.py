@@ -168,9 +168,10 @@ class Gui:
             exp_instr = instruments[exp]
             strikes = list(exp_instr.keys())
             strikes.sort()
-            result.append({'iv off': ' ', 'C pos': ' ', 'C vol bid': ' ', 'C bid': ' ', 'C ask': ' ', 'C vol ask': ' ',
-                           'C delta': ' ', 'strike': exp.name, 'P delta': ' ', 'P vol bid': ' ', 'P bid': ' ',
-                           'P ask': ' ', 'P vol ask': ' ', 'P pos': ' ', })
+            result.append({'iv off': ' ', 'C pos': ' ', 'C vol bid': ' ', 'C bid': ' ', 'C bbid': ' ', 'C bask': ' ',
+                           'C ask': ' ', 'C vol ask': ' ', 'C delta': ' ', 'strike': exp.name, 'P delta': ' ',
+                           'P vol bid': ' ', 'P bid': ' ', 'P bbid': ' ', 'P bask': ' ', 'P ask': ' ', 'P vol ask': ' ',
+                           'P pos': ' ', })
             atm_lo, atm_hi = neighbours(strikes, index)
             for strike in strikes:
                 row = {}
@@ -191,6 +192,8 @@ class Gui:
                     row['C bid'] = repr(quote.theo.b)
                 else:
                     row['C bid'] = ' '
+                row['C bbid'] = quote and quote.tob[0] or ' '
+                row['C bask'] = quote and quote.tob[1] or ' '
                 if quote and quote.book[1]:
                     row['C ask.red'] = repr(quote.book[1])
                 elif quote and quote.theo and quote.theo.a and quote.theo.a.a:
@@ -213,6 +216,8 @@ class Gui:
                     row['P bid'] = repr(quote.theo.b)
                 else:
                     row['P bid'] = ' '
+                row['P bbid'] = quote and quote.tob[0] or ' '
+                row['P bask'] = quote and quote.tob[1] or ' '
                 if quote and quote.book[1]:
                     row['P ask.red'] = repr(quote.book[1])
                 elif quote and quote.theo and quote.theo.a and quote.theo.a.a:
