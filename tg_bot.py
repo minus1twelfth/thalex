@@ -272,7 +272,7 @@ async def check_greeks_forever(app):
         g = Greeks(portfolio, tickers, instruments)
         await check_notify_limit(app, breached_limits, abs(g.btc.delta_cash), 3000, "BTC $Δ")
         await check_notify_limit(app, breached_limits, abs(g.eth.delta_cash), 3000, "ETH $Δ")
-        await check_notify_limit(app, breached_limits, abs(g.eth.delta_cash) + abs(g.btc.delta_cash), 5000, "Σ$Δ")
+        await check_notify_limit(app, breached_limits, abs(g.eth.delta_cash + g.btc.delta_cash), 5000, "Σ$Δ")
         s = await get_account_summary()
         await check_notify_limit(app, breached_limits, s.im, 75, "Margin")
         await asyncio.sleep(60)
