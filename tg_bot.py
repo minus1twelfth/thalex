@@ -1,7 +1,9 @@
 import asyncio
+import html
 import datetime
 import json
 import logging
+import traceback
 
 from telegram import Update, BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, filters, ContextTypes
@@ -193,16 +195,26 @@ async def h_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.error("Exception while handling an update:", exc_info=context.error)
-    if update and isinstance(update, Update):
-        await update.message.reply_text("There was an oupsie processing this one. :(")
+    error_lines = traceback.format_exception(context.error)
+    error_text = f'Unexpected error <pre>{html.escape("".join(error_lines))}</pre>'
+    await context.bot.send_message(chat_id=keys.CHAT_ID, text=error_text, parse_mode='HTML')
 
 async def check_greeks_forever():
     while True:
         await asyncio.sleep(3)
         logging.info('checking greeks')
 
-async def run_app():
-    app = ApplicationBuilder().token(keys.TG_TOKEN).build()
+async def post_init(app):
+    commands = [
+        BotCommand("margin", "Report margin use and PNL"),
+        BotCommand("greeks", "Report greeks per underlying"),
+        BotCommand("next", "Report positions that expire next, and what the greeks will be after"),
+    ]
+    await app.bot.set_my_commands(commands)
+    app.create_task(check_greeks_forever())
+
+def main():
+    app = ApplicationBuilder().token(keys.TG_TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler(
         "margin",
         margin,
@@ -219,33 +231,12 @@ async def run_app():
         filters=filters.Chat(chat_id=keys.CHAT_ID)
     ))
     app.add_error_handler(error_handler)
-    commands = [
-        BotCommand("margin", "Report margin use and PNL"),
-        BotCommand("greeks", "Report greeks per underlying"),
-        BotCommand("next", "Report positions that expire next, and what the greeks will be after"),
-    ]
-    await app.bot.set_my_commands(commands)
+    app.run_polling()
 
-    forever = asyncio.Future()
-    async with app:
-        await app.start()
-        await app.updater.start_polling()
-        try:
-            await forever
-        except asyncio.CancelledError:
-            pass
-        await app.stop()
-
-
-async def main():
-    try:
-        await asyncio.gather(run_app(), check_greeks_forever())
-    except asyncio.CancelledError:
-        pass
 
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s",
     )
-    asyncio.run(main())
+    main()
