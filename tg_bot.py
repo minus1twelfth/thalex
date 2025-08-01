@@ -25,8 +25,6 @@ SECS_IN_YEAR = 3600.0 * 24.0 * 365.25
 
 SCENARIOS = [(0, 0), (0.02, 0.05), (0.02, -0.05), (-0.02, 0.05), (-0.02, -0.05)]  # (+index, +iv)
 
-breached_limits = set()
-
 class AccountSummary:
     def __init__(self, cash, balance, req, upnl, rpnl, im, mm):
         self.cash = cash
@@ -65,7 +63,6 @@ class UnderlyingGreeks:
             self.gamma += pp * bs.gamma(fwd, i.k, sigma, tte)
             self.theta += pp * bs.theta(fwd, i.k, sigma, tte)
             self.vega += pp * bs.vega(fwd, i.k, sigma, tte)
-            logging.info(f"{i.name} {fwd} {i.k} {sigma} {tte}  t: {pp * bs.theta(fwd, i.k, sigma, tte)}")
         else:
             self.delta += pp
             self.delta_cash += pp * index
@@ -259,26 +256,25 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     error_text = f'Unexpected error <pre>{html.escape("".join(error_lines))}</pre>'
     await context.bot.send_message(chat_id=keys.CHAT_ID, text=error_text, parse_mode='HTML')
 
-async def check_notify_limit(app, value, limit, label):
+async def check_notify_limit(app, breached_limits, value, limit, label):
     if value > limit:
         if label not in breached_limits:
             breached_limits.add(label)
-            text = f'{label} limit breached, value {value:.2f} over limit {limit:.2f}'
-            await app.bot.send_message(chat_id=keys.CHAT_ID, text=text)
+            text = f'⚠️<b>ALERT:    {label}</b> limit breached, value <b>{value:.2f}</b> over limit <b>{limit:.2f}</b>'
+            await app.bot.send_message(chat_id=keys.CHAT_ID, text=text, parse_mode='HTML')
     else:
         breached_limits.discard(label)
 
 async def check_greeks_forever(app):
+    breached_limits = set()
     while True:
         portfolio, tickers, instruments = await get_portfolio()
         g = Greeks(portfolio, tickers, instruments)
-        await check_notify_limit(app, abs(g.btc.delta_cash), 10000, "BTC cash Δ")
-        await check_notify_limit(app, abs(g.eth.delta_cash), 10000, "ETH cash Δ")
-        await check_notify_limit(app, abs(g.eth.delta_cash) + abs(g.btc.delta_cash), 15000, "Total cash Δ")
-        await check_notify_limit(app, abs(g.btc.delta), 0.5, "BTC Δ")
-        await check_notify_limit(app, abs(g.eth.delta), 0.5, "ETH Δ")
+        await check_notify_limit(app, breached_limits, abs(g.btc.delta_cash), 3000, "BTC $Δ")
+        await check_notify_limit(app, breached_limits, abs(g.eth.delta_cash), 3000, "ETH $Δ")
+        await check_notify_limit(app, breached_limits, abs(g.eth.delta_cash) + abs(g.btc.delta_cash), 5000, "Σ$Δ")
         s = await get_account_summary()
-        await check_notify_limit(app, s.im, 50, "Margin")
+        await check_notify_limit(app, breached_limits, s.im, 75, "Margin")
         await asyncio.sleep(60)
 
 async def post_init(app):
