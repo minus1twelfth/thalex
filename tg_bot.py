@@ -41,10 +41,10 @@ class UnderlyingGreeks:
                 f"{'Θ':<5} | $ {self.theta:.0f}\n"
                 f"{'ν':<5} | $ {self.vega:.0f}\n")
 
-    def take(self, pp, tick, i: Instrument, now: datetime.datetime, index, iv_off=0.0):
+    def take(self, pp, tick, i: Instrument, now: datetime.datetime, index, fwd_off=0.0, iv_off=0.0):
         if i.type in [InstrumentType.CALL, InstrumentType.PUT]:
             tte = (i.expiry.date - now).total_seconds() / SECS_IN_YEAR
-            fwd = tick["forward"]
+            fwd = tick["forward"] * (1+fwd_off)
             sigma = tick["iv"] + iv_off
             idelta = bs.call_delta(fwd, i.k, sigma, tte) if i.type == InstrumentType.CALL else bs.put_delta(fwd, i.k, sigma, tte)
             d = pp * idelta
@@ -196,7 +196,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             i = instruments[iname]
             index = tick["index"] * (1+s[0])
             if instruments[iname].underlying == f"{query.data}":
-                s_greeks.take(pp, tick, i, now, index, iv_off=s[1])
+                s_greeks.take(pp, tick, i, now, index, fwd_off=s[0], iv_off=s[1])
         outcomes[s] = s_greeks
 
     msg = ""
