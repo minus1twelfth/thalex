@@ -275,6 +275,7 @@ async def check_greeks_forever(app):
         await check_notify_limit(app, breached_limits, abs(g.eth.delta_cash + g.btc.delta_cash), 5000, "Σ$Δ")
         s = await get_account_summary()
         await check_notify_limit(app, breached_limits, s.im, 75, "Margin")
+        await check_notify_limit(app, breached_limits, -s.upnl - s.rpnl, 1000, "Session Loss")
         await asyncio.sleep(60)
 
 async def post_init(app):
