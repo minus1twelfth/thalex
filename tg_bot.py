@@ -49,7 +49,7 @@ class UnderlyingGreeks:
             idelta = bs.call_delta(fwd, i.k, sigma, tte) if i.type == InstrumentType.CALL else bs.put_delta(fwd, i.k, sigma, tte)
             d = pp * idelta
             self.delta += d
-            self.delta_cash += pp * d * index
+            self.delta_cash += d * index
             self.gamma += pp * bs.gamma(fwd, i.k, sigma, tte)
             self.theta += pp * bs.theta(fwd, i.k, sigma, tte)
             self.vega += pp * bs.vega(fwd, i.k, sigma, tte)
