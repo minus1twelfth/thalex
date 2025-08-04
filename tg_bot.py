@@ -106,11 +106,13 @@ class Greeks:
             "</pre>"
         )
 
-
-async def get_portfolio():
+async def connect_to_exchange() -> th.Thalex:
     thalex = th.Thalex(network=NETWORK)
     await thalex.connect()
     await thalex.login(keys.key_ids[NETWORK], keys.private_keys[NETWORK])
+    return thalex
+
+async def get_portfolio(thalex: th.Thalex):
     await thalex.portfolio(id=CID_PORTFOLIO)
     await thalex.instruments(id=CID_INSTRUMENTS)
     tickers = {}
@@ -134,17 +136,13 @@ async def get_portfolio():
             iname = ticker_calls.pop(cid)
             tickers[iname] = msg["result"]
             if len(ticker_calls) == 0:
-                await thalex.disconnect()
                 return positions, tickers, instruments
         elif cid == CID_INSTRUMENTS:
             instruments = [tlx_instrument(i) for i in msg["result"]]
             instruments = {i.name: i for i in instruments}
 
 
-async def get_account_summary():
-    thalex = th.Thalex(network=NETWORK)
-    await thalex.connect()
-    await thalex.login(keys.key_ids[NETWORK], keys.private_keys[NETWORK])
+async def get_account_summary(thalex: th.Thalex):
     await thalex.account_summary(id=CID_ACC_SUM)
     while True:
         msg = json.loads(await thalex.receive())
@@ -154,7 +152,6 @@ async def get_account_summary():
             req = msg["required_margin"]
             im = 100 * req/bal
             mm = im * 0.7
-            await thalex.disconnect()
             return AccountSummary(
                 cash=int(msg['cash_collateral']),
                 balance=int(bal),
@@ -167,7 +164,8 @@ async def get_account_summary():
 
 
 async def margin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    s = await get_account_summary()
+    thalex = await connect_to_exchange()
+    s = await get_account_summary(thalex)
     msg = (
         "<pre>"
         f"{'Cash':<10} | $ {s.cash}\n"
@@ -180,12 +178,15 @@ async def margin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "</pre>"
     )
     await context.bot.send_message(keys.CHAT_ID, msg, parse_mode='HTML')
+    await thalex.disconnect()
 
 
 async def greeks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    portfolio, tickers, instruments = await get_portfolio()
+    thalex = await connect_to_exchange()
+    portfolio, tickers, instruments = await get_portfolio(thalex)
     g = Greeks(portfolio, tickers, instruments)
     await context.bot.send_message(keys.CHAT_ID, f"{g}", parse_mode='HTML')
+    await thalex.disconnect()
 
 
 async def scenarios(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -205,7 +206,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if query.data not in ["BTCUSD", "ETHUSD"]:
         await query.edit_message_text(text=f"I don't know that underlying")
         return
-    portfolio, tickers, instruments = await get_portfolio()
+    thalex = await connect_to_exchange()
+    portfolio, tickers, instruments = await get_portfolio(thalex)
     outcomes = {}
     for s in SCENARIOS:
         s_greeks = UnderlyingGreeks()
@@ -226,10 +228,12 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         msg += f"{outcomes[s]}"
         msg += "</pre>\n\n"
     await query.edit_message_text(text=msg, parse_mode='HTML')
+    await thalex.disconnect()
 
 
 async def h_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    portfolio, tickers, instruments = await get_portfolio()
+    thalex = await connect_to_exchange()
+    portfolio, tickers, instruments = await get_portfolio(thalex)
     next_exp = min([instruments[i] for i in portfolio.keys()], key=lambda i: i.expiry).expiry
     remaining = {iname: pp for iname, pp in portfolio.items() if instruments[iname].expiry != next_exp}
     expiring = {iname: pp for iname, pp in portfolio.items() if instruments[iname].expiry == next_exp}
@@ -250,6 +254,7 @@ async def h_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     f"{e_greek}\n\n\n"
                                     f"After that, greeks will look like:\n"
                                     f"{r_greek}", parse_mode='HTML')
+    await thalex.disconnect()
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -293,12 +298,14 @@ async def check_greeks_forever(app):
         Alert("Session Loss", 1000, 500, lambda g, s: -s.upnl - s.rpnl),
     ]
     while True:
-        portfolio, tickers, instruments = await get_portfolio()
+        thalex = await connect_to_exchange()
+        portfolio, tickers, instruments = await get_portfolio(thalex)
         now = time.time()
         g = Greeks(portfolio, tickers, instruments)
-        s = await get_account_summary()
+        s = await get_account_summary(thalex)
         for a in alerts:
             await a.check_notify(app, now, g, s)
+        await thalex.disconnect()
         await asyncio.sleep(60)
 
 
