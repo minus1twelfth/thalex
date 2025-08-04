@@ -180,7 +180,7 @@ async def get_account_summary(thalex: th.Thalex):
 
 async def get_recent_trades(thalex: th.Thalex):
     pd = load_persisted_data()
-    last_trade_ts = pd.get("last_trade_ts", 0)
+    last_trade_ts = pd.get("last_trade_ts", int(time.time()))
     await thalex.trade_history(time_low=last_trade_ts, id=CID_TRADE_HISTORY)
     while True:
         msg = json.loads(await thalex.receive())
