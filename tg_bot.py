@@ -17,6 +17,7 @@ import blackscholes as bs
 CID_PORTFOLIO = 1
 CID_ACC_SUM = 2
 CID_INSTRUMENTS = 3
+CID_TRADE_HISTORY = 4
 CID_TICK_START = 100
 CID_TICK_END = 500
 
@@ -26,6 +27,20 @@ COOLDOWN = 3600 * 4
 SECS_IN_YEAR = 3600.0 * 24.0 * 365.25
 
 SCENARIOS = [(0, 0), (0.02, 0.05), (0.02, -0.05), (-0.02, 0.05), (-0.02, -0.05)]  # (+index, +iv)
+
+
+def load_persisted_data() -> dict:
+    try:
+        with open('tg_bot.json', 'r') as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return {}
+
+
+def persist_data(data: dict):
+    with open('tg_bot.json', 'w') as file:
+        json.dump(data, file, indent=2)
+
 
 class AccountSummary:
     def __init__(self, cash, balance, req, upnl, rpnl, im, mm):
@@ -161,6 +176,28 @@ async def get_account_summary(thalex: th.Thalex):
                 im=im,
                 mm=mm
             )
+
+
+async def get_recent_trades(thalex: th.Thalex):
+    pd = load_persisted_data()
+    last_trade_ts = pd.get("last_trade_ts", 0)
+    await thalex.trade_history(time_low=last_trade_ts, id=CID_TRADE_HISTORY)
+    while True:
+        msg = json.loads(await thalex.receive())
+        if msg["id"] == CID_TRADE_HISTORY:
+            msg = msg["result"]
+            trades = []
+            for t in msg["trades"]:
+                if t["trade_type"] == "expiration":
+                    continue
+                if not t["time"] > last_trade_ts:
+                    continue
+                trades.append(t)
+            if trades:
+                pd["last_trade_ts"] = max(t["time"] for t in trades)
+                persist_data(pd)
+            return trades
+
 
 
 async def margin(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -309,6 +346,12 @@ async def check_greeks_forever(app):
             s = await get_account_summary(thalex)
             for a in alerts:
                 await a.check_notify(app, now, g, s)
+            trades = await get_recent_trades(thalex)
+            for t in trades:
+                direction = "Bought" if t["direction"] == "buy" else "Sold"
+                msg = (f"{direction} {t['amount']}@{int(t['price'])} in {t['instrument_name']}"
+                       f", position is {t['position_after']}")
+                await app.bot.send_message(chat_id=keys.CHAT_ID, text=msg)
             await thalex.disconnect()
         except Exception as e:
             if now > last_error_time + 30*60:
