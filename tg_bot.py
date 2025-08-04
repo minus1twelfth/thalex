@@ -256,12 +256,14 @@ async def h_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     f"{r_greek}", parse_mode='HTML')
     await thalex.disconnect()
 
+def format_error_message(error):
+    error_lines = traceback.format_exception(error)
+    return f'Unexpected error <pre>{html.escape("".join(error_lines))}</pre>'
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.error("Exception while handling an update:", exc_info=context.error)
-    error_lines = traceback.format_exception(context.error)
-    error_text = f'Unexpected error <pre>{html.escape("".join(error_lines))}</pre>'
-    await context.bot.send_message(chat_id=keys.ADMIN_ID, text=error_text, parse_mode='HTML')
+    await context.bot.send_message(chat_id=keys.ADMIN_ID, text=format_error_message(context.error), parse_mode='HTML')
+    await context.bot.send_message(chat_id=keys.CHAT_ID, text='An unexpected error has occurred')
 
 
 class Alert:
@@ -290,6 +292,7 @@ class Alert:
 
 
 async def check_greeks_forever(app):
+    last_error_time = 0
     alerts = [
         Alert("BTC $Δ", 3000, 500, lambda g, s: abs(g.btc.delta_cash)),
         Alert("ETH $Δ", 3000, 500, lambda g, s: abs(g.eth.delta_cash)),
@@ -298,15 +301,21 @@ async def check_greeks_forever(app):
         Alert("Session Loss", 1000, 500, lambda g, s: -s.upnl - s.rpnl),
     ]
     while True:
-        thalex = await connect_to_exchange()
-        portfolio, tickers, instruments = await get_portfolio(thalex)
         now = time.time()
-        g = Greeks(portfolio, tickers, instruments)
-        s = await get_account_summary(thalex)
-        for a in alerts:
-            await a.check_notify(app, now, g, s)
-        await thalex.disconnect()
+        try:
+            thalex = await connect_to_exchange()
+            portfolio, tickers, instruments = await get_portfolio(thalex)
+            g = Greeks(portfolio, tickers, instruments)
+            s = await get_account_summary(thalex)
+            for a in alerts:
+                await a.check_notify(app, now, g, s)
+            await thalex.disconnect()
+        except Exception as e:
+            if now > last_error_time + 30*60:
+                await app.bot.send_message(chat_id=keys.ADMIN_ID, text=format_error_message(e), parse_mode='HTML')
+                last_error_time = now
         await asyncio.sleep(60)
+
 
 
 async def post_init(app):
