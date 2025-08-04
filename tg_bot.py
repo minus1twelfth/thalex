@@ -277,6 +277,7 @@ class Alert:
         notify |= sig > self.cur_lvl and now > self.last_report + COOLDOWN
         if sig < self.base_lvl * 0.5:
             self.cur_lvl = self.base_lvl
+            self.last_report = 0
         if notify:
             text = f'⚠️<b>ALERT: {self.name}</b> value <b>{sig:.0f}</b>'
             await app.bot.send_message(chat_id=keys.CHAT_ID, text=text, parse_mode='HTML')
