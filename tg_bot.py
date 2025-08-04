@@ -3,6 +3,7 @@ import html
 import datetime
 import json
 import logging
+import time
 import traceback
 
 from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
@@ -20,6 +21,7 @@ CID_TICK_START = 100
 CID_TICK_END = 500
 
 NETWORK = th.Network.PROD
+COOLDOWN = 3600 * 4
 
 SECS_IN_YEAR = 3600.0 * 24.0 * 365.25
 
@@ -254,29 +256,50 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     logging.error("Exception while handling an update:", exc_info=context.error)
     error_lines = traceback.format_exception(context.error)
     error_text = f'Unexpected error <pre>{html.escape("".join(error_lines))}</pre>'
-    await context.bot.send_message(chat_id=keys.CHAT_ID, text=error_text, parse_mode='HTML')
+    await context.bot.send_message(chat_id=keys.ADMIN_ID, text=error_text, parse_mode='HTML')
 
-async def check_notify_limit(app, breached_limits, value, limit, label):
-    if value > limit:
-        if label not in breached_limits:
-            breached_limits.add(label)
-            text = f'⚠️<b>ALERT:    {label}</b> limit breached, value <b>{value:.2f}</b> over limit <b>{limit:.2f}</b>'
+
+class Alert:
+    def __init__(self, name, base_lvl, inc, eval):
+        self.name = name
+        self.base_lvl = base_lvl
+        self.cur_lvl = base_lvl
+        self.inc = inc
+        self.last_report = 0
+        self.eval = eval
+
+    async def check_notify(self, app, now, greeks, acc_sum):
+        sig = self.eval(greeks, acc_sum)
+        notify = False
+        while sig > self.cur_lvl + self.inc:
+            self.cur_lvl += self.inc
+            notify = True
+        notify |= sig > self.cur_lvl and now > self.last_report + COOLDOWN
+        if sig < self.base_lvl * 0.5:
+            self.cur_lvl = self.base_lvl
+        if notify:
+            text = f'⚠️<b>ALERT: {self.name}</b> value <b>{sig:.0f}</b>'
             await app.bot.send_message(chat_id=keys.CHAT_ID, text=text, parse_mode='HTML')
-    else:
-        breached_limits.discard(label)
+            self.last_report = now
+
 
 async def check_greeks_forever(app):
-    breached_limits = set()
+    alerts = [
+        Alert("BTC $Δ", 3000, 500, lambda g, s: abs(g.btc.delta_cash)),
+        Alert("ETH $Δ", 3000, 500, lambda g, s: abs(g.eth.delta_cash)),
+        Alert("Σ$Δ", 2000, 500, lambda g, s: abs(g.eth.delta_cash + g.btc.delta_cash)),
+        Alert("Margin", 75, 5, lambda g, s: s.im),
+        Alert("Session Loss", 1000, 500, lambda g, s: -s.upnl - s.rpnl),
+    ]
     while True:
         portfolio, tickers, instruments = await get_portfolio()
+        now = time.time()
         g = Greeks(portfolio, tickers, instruments)
-        await check_notify_limit(app, breached_limits, abs(g.btc.delta_cash), 3000, "BTC $Δ")
-        await check_notify_limit(app, breached_limits, abs(g.eth.delta_cash), 3000, "ETH $Δ")
-        await check_notify_limit(app, breached_limits, abs(g.eth.delta_cash + g.btc.delta_cash), 5000, "Σ$Δ")
         s = await get_account_summary()
-        await check_notify_limit(app, breached_limits, s.im, 75, "Margin")
-        await check_notify_limit(app, breached_limits, -s.upnl - s.rpnl, 1000, "Session Loss")
+        for a in alerts:
+            await a.check_notify(app, now, g, s)
         await asyncio.sleep(60)
+
 
 async def post_init(app):
     commands = [
