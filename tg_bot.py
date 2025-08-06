@@ -26,7 +26,7 @@ COOLDOWN = 3600 * 4
 
 SECS_IN_YEAR = 3600.0 * 24.0 * 365.25
 
-SCENARIOS = [(0, 0), (0.02, 0.05), (0.02, -0.05), (-0.02, 0.05), (-0.02, -0.05)]  # (+index, +iv)
+SCENARIOS = [(0, 0), (0.02, 0), (0.02, 0.05), (0.02, -0.05), (-0.02, 0), (-0.02, 0.05), (-0.02, -0.05)]  # (+index, +iv)
 
 
 def load_persisted_data() -> dict:
@@ -180,7 +180,7 @@ async def get_account_summary(thalex: th.Thalex):
 
 async def get_recent_trades(thalex: th.Thalex):
     pd = load_persisted_data()
-    last_trade_ts = pd.get("last_trade_ts", int(time.time()-300))
+    last_trade_ts = pd.get("last_trade_ts", int(time.time() - 300))
     await thalex.trade_history(time_low=last_trade_ts, id=CID_TRADE_HISTORY)
     while True:
         msg = json.loads(await thalex.receive())
@@ -258,12 +258,12 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 s_greeks.take(pp, tick, i, now, index, fwd_off=s[0], iv_off=s[1])
         outcomes[s] = s_greeks
 
-    msg = ""
+    msg = f"<pre>{query.data:<4} iv |   Δ   |   $Δ\n"
     for s in SCENARIOS:
-        msg += f"<b>{query.data}: {'+' if s[0] > 0 else ''}{s[0] * 100:.0f}%, iv: {s[1] * 100:.0f}%</b>"
-        msg += "<pre>"
-        msg += f"{outcomes[s]}"
-        msg += "</pre>\n\n"
+        msg += (f"{'+' if s[0] >= 0 else ''}{s[0] * 100:.0f}%   "
+                f"{'+' if s[1] >= 0 else ''}{s[1] * 100:.0f}% | "
+                f"{outcomes[s].delta:<5.2f} | {outcomes[s].delta_cash:.0f}\n")
+    msg += "</pre>"
     await query.edit_message_text(text=msg, parse_mode='HTML')
     await thalex.disconnect()
 
@@ -331,9 +331,9 @@ class Alert:
 async def check_greeks_forever(app):
     last_error_time = 0
     alerts = [
-        Alert("BTC $Δ", 3000, 500, lambda g, s: abs(g.btc.delta_cash)),
-        Alert("ETH $Δ", 3000, 500, lambda g, s: abs(g.eth.delta_cash)),
-        Alert("Σ$Δ", 2000, 500, lambda g, s: abs(g.eth.delta_cash + g.btc.delta_cash)),
+        Alert("BTC $Δ", 5000, 1000, lambda g, s: abs(g.btc.delta_cash)),
+        Alert("ETH $Δ", 5000, 1000, lambda g, s: abs(g.eth.delta_cash)),
+        Alert("Σ$Δ", 3000, 1000, lambda g, s: abs(g.eth.delta_cash + g.btc.delta_cash)),
         Alert("Margin", 75, 5, lambda g, s: s.im),
         Alert("Session Loss", 1000, 500, lambda g, s: -s.upnl - s.rpnl),
     ]
@@ -348,10 +348,10 @@ async def check_greeks_forever(app):
                 await a.check_notify(app, now, g, s)
             trades = await get_recent_trades(thalex)
             for t in trades:
-                direction = "Bought" if t["direction"] == "buy" else "Sold"
-                msg = (f"{direction} {t['amount']}@{int(t['price'])} in {t['instrument_name']}"
-                       f", position is {t['position_after']}")
-                await app.bot.send_message(chat_id=keys.CHAT_ID, text=msg)
+                direction = "🟢Bought" if t["direction"] == "buy" else "🔴Sold"
+                msg = (f"{direction} <b>{t['amount']}@{int(t['price'])} in {t['instrument_name']}</b>"
+                       f", position is <b>{t['position_after']}</b>")
+                await app.bot.send_message(chat_id=keys.CHAT_ID, text=msg, parse_mode='HTML')
             await thalex.disconnect()
         except Exception as e:
             if now > last_error_time + 30*60:
