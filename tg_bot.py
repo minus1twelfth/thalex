@@ -196,8 +196,8 @@ async def get_recent_trades(thalex: th.Thalex):
             if trades:
                 pd["last_trade_ts"] = max(t["time"] for t in trades)
                 persist_data(pd)
+            trades.reverse()
             return trades
-
 
 
 async def margin(update: Update, context: ContextTypes.DEFAULT_TYPE):
