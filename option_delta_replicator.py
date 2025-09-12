@@ -6,7 +6,7 @@ from dataclasses import dataclass, asdict
 from typing import Optional, Union
 
 import keys
-import thalex_py as th
+import thalex as th
 
 network = th.Network.TEST
 KEY_ID = keys.key_ids[network]
@@ -127,3 +127,4 @@ if __name__ == "__main__":
         to_csv(data, "errors.csv")
     else:
         print("No data captured.")
+
