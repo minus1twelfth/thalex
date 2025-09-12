@@ -1,2 +1,4 @@
-Just some experiments with the unofficial thalex bot, which you can find here:
+Experimenting with thalex bots.
+
+More stuff here:
 https://github.com/thalextech/thalex_py
