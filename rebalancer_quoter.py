@@ -313,28 +313,6 @@ class Quoter:
             return 0
         return fr_to_annualized(p - 0.00025) * 100
 
-    def get_quotes(self):
-        qs = Quotes(self.cfg, self.position, self.mark, self.index)
-        return {
-            "pos": self.position,
-            "tob_bid": self.tob[0],
-            "tob_bid_ifr": self.price_to_ann(self.tob[0]),
-            "tob_ask": self.tob[1],
-            "tob_ask_ifr": self.price_to_ann(self.tob[1]),
-            "theo": qs.theo,
-            "bid_price": qs.bid_price,
-            "bid_amt": qs.bid_amt,
-            "ask_price": qs.ask_price,
-            "ask_amt": qs.ask_amt,
-            "x_price": qs.r_price,
-            "x_side": str(qs.r_side),
-            "x_amt": abs(qs.r_amt),
-            "index": self.index,
-            "mark": self.mark,
-            "fr": fr_to_annualized(self.fr) * 100,
-        }
-
-
 async def main():
     logging.basicConfig(
         level=logging.INFO,
@@ -370,5 +348,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
