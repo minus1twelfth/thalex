@@ -74,59 +74,6 @@ class Config:
             "x_offset": self.exit_offset,
         }
 
-    def set(self, key, val):
-        if not isinstance(key, str):
-            return "invalid key"
-        if not isinstance(val, float):
-            return "invalid value"
-        if key == "min_pos":
-            if -0.5 <= val <= 0.5:
-                self.min_pos = val
-            else:
-                return "min_pos must be between -0.5 and 0.5"
-        elif key == "max_pos":
-            if -0.5 <= val <= 0.5:
-                self.max_pos = val
-            else:
-                return "max_pos must be between -0.5 and 0.5"
-        elif key == "tgt_pos":
-            if max(-0.5, self.min_pos) <= val <= min(0.5, self.max_pos):
-                self.tgt_pos = val
-            else:
-                return "tgt_pos must be between max(-0.5, min_pos) and min(0.5, self.max_pos)"
-        elif key == "size":
-            if 0.001 <= val <= 0.05:
-                self.size = val
-            else:
-                return "size must be between 0.001 and 0.05"
-        elif key == "amend_threshold":
-            if 3 <= val <= 10:
-                self.amend_threshold = val
-            else:
-                return "amend_threshold must be between 3 and 10"
-        elif key == "theo_fr":
-            val = annualized_to_fr(val / 100)
-            if annualized_to_fr(-10 / 100) <= val <= annualized_to_fr(15 / 100):
-                self.theo_fr = val
-            else:
-                return "theo_fr must be between -10% and 15%"
-        elif key == "bid_offset":
-            if self.exit_offset <= val <= 1000:
-                self.bid_offset = val
-            else:
-                return "bid_offset must be between exit_offset and 1000"
-        elif key == "ask_offset":
-            if self.exit_offset <= val <= 1000:
-                self.ask_offset = val
-            else:
-                return "ask_offset must be between exit_offset and 1000"
-        elif key == "exit_offset":
-            if val <= min(self.bid_offset, self.ask_offset):
-                self.exit_offset = val
-            else:
-                return "exit_offset must be lower than bid_offset and ask_offset"
-        logging.info(f"Setting {key}: {val}")
-
 
 def round_to_tick(value):
     return PRICE_TICK * round(value / PRICE_TICK)
@@ -348,6 +295,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
