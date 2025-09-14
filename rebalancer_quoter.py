@@ -183,9 +183,10 @@ class Quoter:
             "partially_filled",
         ]
         if is_open:
+            # if you have an exit quote and your position flips, you need to reinsert to change order direction
             if (
                 Direction(confirmed["direction"]) != side
-            ):  # if you have an exit quote and your position flips, you need to reinsert to change order direction
+            ):  
                 await self.tlx.cancel(client_order_id=quote_id, id=quote_id)
             elif (
                 amount == 0
@@ -369,4 +370,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
