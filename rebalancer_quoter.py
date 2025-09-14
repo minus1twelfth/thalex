@@ -44,8 +44,8 @@ TGT_POSITION = 0
 SIZE = 0.005  # Number of contracts to quote
 AMEND_THRESHOLD = 5  # USD
 THEO_FR = annualized_to_fr(10 / 100)
-ASK_OFFSET = 10  # $
-BID_OFFSET = 10  # $
+ASK_OFFSET = 30  # $
+BID_OFFSET = 30  # $
 EXIT_OFFSET = 0  # $
 
 
@@ -369,3 +369,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
